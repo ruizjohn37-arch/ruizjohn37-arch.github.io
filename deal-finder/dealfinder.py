@@ -333,34 +333,35 @@ OPENERS = [
     "Good afternoon {first},",
 ]
 
+# Keep these true for you. Don't claim buyers or deals you don't have.
 BODIES_AGENT = [
     "I came across your listing at {street} and wanted to reach out. I'm a real estate "
-    "wholesaler here in the area, which means I work with a group of cash buyers and match "
-    "them with properties. One of them is looking for something just like this.\n\n"
+    "wholesaler, which means I put properties under contract and connect them with cash "
+    "investors who buy as-is.\n\n"
     "Would your seller be open to a cash offer with a quick, flexible close? If so I'd love to "
-    "set up a time to walk the property, or just hear what number would make sense for them.",
+    "set up a time to see the property, or just hear what number would make sense for them.",
 
     "I'm reaching out about {street}. To be upfront, I'm a wholesaler, not an end buyer: I "
-    "put properties under contract and assign them to investors I work with. I've got a "
-    "couple of cash buyers active around {zip} right now and this one caught my eye.\n\n"
-    "Is the seller still flexible on price or terms? Happy to work through you on everything.",
+    "put properties under contract and assign them to investors. Homes like this one around "
+    "{zip} are the kind of thing cash buyers look for.\n\n"
+    "Is the seller flexible on price or terms? Happy to work through you on everything.",
 
     "Saw {street} has been on the market for a bit and thought I'd ask. I'm a real estate "
-    "wholesaler and I've got buyers looking for {beds}-bed homes in this area who can close "
-    "in cash, as-is.\n\n"
+    "wholesaler and I work on finding {beds}-bed homes in this area for cash investors who "
+    "buy as-is.\n\n"
     "If your seller would consider an offer, what would it take to get something done?",
 ]
 
 BODIES_OWNER = [
     "I'm reaching out about your property at {street}. I'm a real estate wholesaler, so I "
-    "connect homeowners with cash buyers I work with. No pressure at all; I just wanted to see "
+    "connect homeowners with cash investors. No pressure at all; I just wanted to see "
     "if you'd ever thought about selling.\n\n"
-    "If the timing's right, we can usually close quickly and buy as-is, no repairs or "
-    "showings. If not, no worries and I won't keep bugging you.",
+    "If the timing's right, deals like this can usually close quickly and as-is, with no "
+    "repairs or showings. If not, no worries and I won't keep bugging you.",
 
-    "I'll keep this short. I'm a local real estate wholesaler, meaning I match property "
-    "owners with investors who buy for cash. Your place at {street} is in an area a few of my "
-    "buyers are focused on.\n\n"
+    "I'll keep this short. I'm a local real estate wholesaler, meaning I connect property "
+    "owners with investors who buy for cash. I'm looking at homes on your street and "
+    "wanted to ask about {street}.\n\n"
     "Would you be open to hearing an offer? Even if you're not selling now, happy to chat.",
 ]
 
@@ -387,7 +388,8 @@ def build_email(deal, cfg, rng):
         rng.choice(CLOSERS).format(**fields),
     ])
     signature = "\n".join(filter(None, [cfg.get("your_company"), cfg.get("your_phone"), cfg.get("your_email")]))
-    footer = (f"\n\n--\n{cfg['your_company']} | {cfg['mailing_address']}\n"
+    sender = cfg.get("your_company") or cfg["your_name"]
+    footer = (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
               "If you'd rather not hear from me, just reply \"remove\" and I won't contact you again.")
     return rng.choice(SUBJECTS).format(**fields), f"{body}\n{signature}{footer}"
 
