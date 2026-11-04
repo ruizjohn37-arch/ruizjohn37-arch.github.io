@@ -9,11 +9,18 @@ Pipeline:
     score   -> rank every property by how good a deal it looks
     draft   -> write emails for rows you marked "approved" in data/deals.csv
     send    -> send those drafts (dry run unless you pass --confirm)
+    setup   -> answer a few questions once to create config.json
+    dashboard -> open a page in your browser to track every deal
 
 Standard library only. Python 3.9+.
 """
 import argparse
 import csv
+import contextlib
+import getpass
+import http.server
+import io
+import threading
 import json
 import os
 import random
@@ -23,6 +30,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import webbrowser
 from datetime import datetime
 from email.message import EmailMessage
 
@@ -39,14 +47,26 @@ DEAL_COLUMNS = [
     "area_median_ppsf", "discount_vs_area_pct", "price_cut_pct", "days_on_market",
     "beds", "baths", "property_type", "motivation_flags", "contact_name",
     "contact_email", "contact_phone", "contact_role", "listing_url", "notes",
+    "offer", "assignment_fee", "follow_up", "updated",
 ]
+# The order a deal moves through. The dashboard uses these as its tabs.
+STAGES = ["pending", "approved", "emailed", "replied", "negotiating",
+          "under_contract", "closed", "skip", "dead"]
+# Columns you edit by hand (or in the dashboard); re-scoring keeps them.
+USER_COLUMNS = ["status", "notes", "offer", "assignment_fee", "follow_up", "updated"]
 
 
 # ---------------------------------------------------------------- helpers
+def is_set(cfg, key):
+    """True when a secret in config.json has been filled in (not the example placeholder)."""
+    val = cfg.get(key, "")
+    return bool(val) and "PASTE" not in val and " " not in val
+
+
 def load_config():
     path = os.path.join(HERE, "config.json")
     if not os.path.exists(path):
-        sys.exit("No config.json yet. Copy config.example.json to config.json and fill it in.")
+        sys.exit("Not set up yet. Run `python3 dealfinder.py setup` first.")
     with open(path) as f:
         return json.load(f)
 
@@ -81,6 +101,16 @@ def read_deals():
         sys.exit("No deals list yet. Run `fetch` or `import`, then `score`.")
     with open(DEALS, newline="") as f:
         return list(csv.DictReader(f))
+
+
+def write_deals(deals):
+    os.makedirs(DATA, exist_ok=True)
+    tmp = DEALS + ".tmp"
+    with open(tmp, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=DEAL_COLUMNS, restval="", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(deals)
+    os.replace(tmp, DEALS)
 
 
 def do_not_contact():
@@ -269,17 +299,15 @@ def cmd_score(args):
             "contact_phone": r.get("contact_phone", ""),
             "contact_role": r.get("contact_role", ""),
             "listing_url": r.get("listing_url", ""),
-            "notes": prev.get("notes", ""),
         })
+        for col in USER_COLUMNS:
+            out[-1][col] = prev.get(col, out[-1].get(col, ""))
+        out[-1]["status"] = out[-1]["status"] or "pending"
 
     out.sort(key=lambda d: d["score"], reverse=True)
     if args.top:
         out = out[: args.top]
-    os.makedirs(DATA, exist_ok=True)
-    with open(DEALS, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=DEAL_COLUMNS)
-        w.writeheader()
-        w.writerows(out)
+    write_deals(out)
 
     print(f"Ranked {len(out)} properties -> {DEALS}\n")
     print(f"{'#':>3} {'score':>6} {'price':>10} {'$/sf':>5} {'vs area':>8} {'cut':>6} {'DOM':>4}  address")
@@ -387,8 +415,8 @@ def cmd_draft(args):
             json.dump({"to": email, "address": d["address"], "subject": subject, "body": body}, f, indent=2)
         made += 1
         print(f"\n===== {d['address']}  ->  {email}\nSubject: {subject}\n\n{body}")
-    print(f"\n{made} drafts written to {OUTBOX}. Edit any of them, then run `send` "
-          "(dry run) and `send --confirm` when you're happy.")
+    print(f"\n{made} email(s) written. Review and edit them, then send "
+          "(Send button in the dashboard, or `send` then `send --confirm`).")
 
 
 def cmd_send(args):
@@ -414,9 +442,14 @@ def cmd_send(args):
         print("\nRe-run with --confirm to actually send.")
         return
 
-    server = smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"])
+    if not is_set(cfg, "smtp_app_password"):
+        sys.exit("Add your Gmail app password first: run `python3 dealfinder.py setup`.")
+    server = smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=30)
     server.starttls()
-    server.login(cfg["smtp_user"], cfg["smtp_app_password"])
+    try:
+        server.login(cfg["smtp_user"], cfg["smtp_app_password"])
+    except smtplib.SMTPAuthenticationError:
+        sys.exit("Gmail rejected the login. Check the Gmail address and app password with `setup`.")
     new_log = not os.path.exists(SENT_LOG)
     with open(SENT_LOG, "a", newline="") as logf:
         log = csv.writer(logf)
@@ -437,7 +470,200 @@ def cmd_send(args):
                 # spacing sends out keeps you out of spam filters and looks like a person
                 time.sleep(random.uniform(cfg["min_seconds_between_emails"], cfg["max_seconds_between_emails"]))
     server.quit()
+    # move the deals you just emailed to the "emailed" stage
+    sent_addrs = {m["address"].lower() for _, m in todo}
+    deals = read_deals() if os.path.exists(DEALS) else []
+    for d in deals:
+        if d["address"].lower() in sent_addrs and d["status"] == "approved":
+            d["status"], d["updated"] = "emailed", datetime.now().isoformat(timespec="seconds")
+    if deals:
+        write_deals(deals)
     print(f"Done. Log: {SENT_LOG}. Add anyone who replies 'remove' to {DNC}.")
+
+
+# ---------------------------------------------------------------- setup
+def cmd_setup(args):
+    path = os.path.join(HERE, "config.json")
+    with open(os.path.join(HERE, "config.example.json")) as f:
+        cfg = json.load(f)
+    if os.path.exists(path):
+        with open(path) as f:
+            cfg.update(json.load(f))
+    print("Let's set you up. Press Enter to keep what's in [brackets].\n")
+
+    def ask(key, prompt, secret=False):
+        cur = cfg.get(key, "")
+        shown = ("saved" if is_set(cfg, key) else "") if secret else cur
+        q = f"{prompt} [{shown}]: " if shown else f"{prompt}: "
+        val = (getpass.getpass(q) if secret else input(q)).strip()
+        if val:
+            cfg[key] = val.replace(" ", "") if secret else val
+
+    ask("your_name", "Your name")
+    ask("your_company", "Company name")
+    ask("your_phone", "Phone number")
+    ask("your_email", "Email address")
+    ask("mailing_address", "Mailing address (required by law in the email footer)")
+    print("\nRentCast key (free at https://www.rentcast.io/api). Leave blank to add later.")
+    ask("rentcast_api_key", "RentCast API key", secret=True)
+    print("\nGmail app password: Google Account > Security > 2-Step Verification on > App passwords.")
+    ask("smtp_user", "Gmail address to send from")
+    ask("smtp_app_password", "Gmail app password (16 letters)", secret=True)
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"\nSaved to {path}. You're ready: run the dashboard.")
+
+
+# ---------------------------------------------------------------- dashboard
+def dashboard_state():
+    deals = read_deals() if os.path.exists(DEALS) else []
+    sent = []
+    if os.path.exists(SENT_LOG):
+        with open(SENT_LOG, newline="") as f:
+            sent = list(csv.DictReader(f))
+    drafts = []
+    if os.path.isdir(OUTBOX):
+        for n in sorted(os.listdir(OUTBOX)):
+            if n.endswith(".json"):
+                with open(os.path.join(OUTBOX, n)) as f:
+                    drafts.append({"file": n, **json.load(f)})
+    has_cfg = os.path.exists(os.path.join(HERE, "config.json"))
+    cfg = load_config() if has_cfg else {}
+    return {"deals": deals, "sent": sent, "drafts": drafts, "drafts_waiting": len(drafts),
+            "do_not_contact": sorted(do_not_contact()), "stages": STAGES, "job": JOB,
+            "setup": {"config": has_cfg,
+                      "rentcast": is_set(cfg, "rentcast_api_key"),
+                      "email": is_set(cfg, "smtp_app_password")}}
+
+
+# One background job at a time (finding houses, writing or sending emails).
+JOB = {"running": False, "name": "", "output": "", "ok": True}
+
+
+def run_job(name, func, args):
+    def work():
+        buf = io.StringIO()
+        ok = True
+        try:
+            with contextlib.redirect_stdout(buf):
+                func(args)
+        except SystemExit as e:
+            ok = False
+            buf.write(f"\n{e}")
+        except Exception as e:  # show the problem on the page instead of crashing the server
+            ok = False
+            buf.write(f"\nError: {e}")
+        JOB.update(running=False, output=buf.getvalue()[-4000:], ok=ok)
+    JOB.update(running=True, name=name, output="", ok=True)
+    threading.Thread(target=work, daemon=True).start()
+
+
+class DashboardHandler(http.server.BaseHTTPRequestHandler):
+    def _send(self, code, body, ctype="application/json"):
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            with open(os.path.join(HERE, "dashboard.html"), "rb") as f:
+                return self._send(200, f.read(), "text/html; charset=utf-8")
+        if self.path == "/api/state":
+            return self._send(200, dashboard_state())
+        self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        # only accept requests from this page, not from other websites
+        if self.headers.get("X-Dashboard") != "1":
+            return self._send(403, {"error": "forbidden"})
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        if self.path == "/api/deal":
+            deals = read_deals() if os.path.exists(DEALS) else []
+            for d in deals:
+                if d["address"] == body.get("address"):
+                    for col in USER_COLUMNS:
+                        if col in body and col != "updated":
+                            d[col] = str(body[col])
+                    if d["status"] not in STAGES:
+                        return self._send(400, {"error": "unknown status"})
+                    d["updated"] = datetime.now().isoformat(timespec="seconds")
+                    write_deals(deals)
+                    return self._send(200, d)
+            return self._send(404, {"error": "deal not found"})
+        if self.path == "/api/run":
+            if JOB["running"]:
+                return self._send(409, {"error": f"Still busy: {JOB['name']}"})
+            action = body.get("action")
+            if action == "fetch":
+                a = argparse.Namespace(city=body.get("city") or None, state=body.get("state") or None,
+                                       zip=body.get("zip") or None, property_type=body.get("property_type") or None,
+                                       max_price=num(body.get("max_price")), max_results=500)
+                if not a.zip and not (a.city and a.state):
+                    return self._send(400, {"error": "Enter a ZIP, or a city and state."})
+                def fetch_and_score(x):
+                    cmd_fetch(x)
+                    cmd_score(argparse.Namespace(max_price=x.max_price, top=None))
+                run_job("Finding houses", fetch_and_score, a)
+            elif action == "import":
+                path = os.path.join(DATA, "upload.csv")
+                os.makedirs(DATA, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(body.get("csv", ""))
+                def import_and_score(x):
+                    cmd_import(x)
+                    cmd_score(argparse.Namespace(max_price=None, top=None))
+                run_job("Importing list", import_and_score,
+                        argparse.Namespace(csv=path, role=body.get("role") or "listing agent"))
+            elif action == "draft":
+                run_job("Writing emails", cmd_draft, argparse.Namespace())
+            elif action == "send":
+                run_job("Sending emails", cmd_send, argparse.Namespace(confirm=True))
+            else:
+                return self._send(400, {"error": "unknown action"})
+            return self._send(200, JOB)
+        if self.path == "/api/draft":
+            name = os.path.basename(body.get("file", ""))
+            path = os.path.join(OUTBOX, name)
+            if not name.endswith(".json") or not os.path.exists(path):
+                return self._send(404, {"error": "draft not found"})
+            if body.get("delete"):
+                os.remove(path)
+                return self._send(200, {"ok": True})
+            with open(path) as f:
+                d = json.load(f)
+            d["subject"], d["body"] = body.get("subject", d["subject"]), body.get("body", d["body"])
+            with open(path, "w") as f:
+                json.dump(d, f, indent=2)
+            return self._send(200, d)
+        if self.path == "/api/dnc":
+            email = (body.get("email") or "").strip().lower()
+            if "@" not in email:
+                return self._send(400, {"error": "bad email"})
+            if email not in do_not_contact():
+                os.makedirs(DATA, exist_ok=True)
+                with open(DNC, "a") as f:
+                    f.write(email + "\n")
+            return self._send(200, {"ok": True})
+        self._send(404, {"error": "not found"})
+
+    def log_message(self, *a):
+        pass
+
+
+def cmd_dashboard(args):
+    url = f"http://127.0.0.1:{args.port}/"
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), DashboardHandler)
+    print(f"Dashboard running at {url}  (Ctrl+C to stop)")
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
 
 
 # ---------------------------------------------------------------- cli
@@ -469,6 +695,13 @@ def main():
     se = sub.add_parser("send", help="send drafts (dry run unless --confirm)")
     se.add_argument("--confirm", action="store_true")
     se.set_defaults(func=cmd_send)
+
+    sub.add_parser("setup", help="answer a few questions to create config.json").set_defaults(func=cmd_setup)
+
+    db = sub.add_parser("dashboard", help="open the tracking dashboard in your browser")
+    db.add_argument("--port", type=int, default=8765)
+    db.add_argument("--no-browser", action="store_true")
+    db.set_defaults(func=cmd_dashboard)
 
     args = p.parse_args()
     if args.cmd == "fetch" and not args.zip and not (args.city and args.state):

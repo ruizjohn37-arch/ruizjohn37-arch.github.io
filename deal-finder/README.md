@@ -15,9 +15,31 @@ This tool gets the same MLS listings from **RentCast**, an API built for this ki
 and it can also load any CSV you have (PropStream, a county list, a skip-traced list, or a
 sheet you typed up while browsing Zillow).
 
-## Setup (one time)
+## Easiest way: double-click
+1. Install Python from https://www.python.org/downloads/ (on Windows, tick **"Add python.exe to PATH"**).
+2. Download this folder (on GitHub: **Code > Download ZIP**, then unzip it).
+3. Double-click **`start-windows.bat`** (Windows) or **`start-mac.command`** (Mac; the first time,
+   right-click > Open). The first run asks your name, company, phone, mailing address, RentCast key and
+   Gmail app password. You can leave the keys blank and add them later with `python3 dealfinder.py setup`.
+4. Your browser opens the **Deal Tracker** dashboard. Keep that window open while you use it.
+
+### The dashboard
+Everything works from the page, with no commands to type:
+* **Find houses**: enter a city and state or a ZIP, plus a max price. It pulls listings and ranks them.
+  You can also **upload a CSV** instead.
+* **Track every property**: change its stage (New > Approved > Emailed > Replied > Negotiating >
+  Under contract > Closed, or Skip / Dead), and enter your offer, assignment fee, a follow-up date and notes.
+  It saves automatically to `data/deals.csv`.
+* **Write emails** for the houses you approved, then **edit or remove each one** before you press **Send**.
+  Sent houses move to *Emailed* on their own.
+* The top row shows emails sent, reply rate, active deals, follow-ups due, fees earned and fees in
+  the pipeline. Follow-ups that are due today or overdue are listed on the right.
+
+The dashboard only runs on your computer (`127.0.0.1`), so your leads aren't on the internet.
+
+## Manual setup (one time)
 1. Install Python 3.9+. Nothing else is needed.
-2. `cp config.example.json config.json` and fill in your name, company, phone, and **mailing
+2. Run `python3 dealfinder.py setup` (or copy `config.example.json` to `config.json`) and fill in your name, company, phone, and **mailing
    address**. The address goes in the email footer because the CAN-SPAM Act requires it.
 3. Listings: sign up at https://www.rentcast.io/api (the free tier gives 50 requests a month)
    and paste the key into `config.json`.
@@ -27,7 +49,8 @@ sheet you typed up while browsing Zillow).
 `config.json` and `data/` are git-ignored, so your keys and leads stay off GitHub. This repo is
 public, so keep it that way.
 
-## Daily use
+## Daily use from the terminal (optional)
+`python3 dealfinder.py dashboard` opens the tracker. The commands below do the same steps by hand.
 ```bash
 # 1. Get listings (pick one)
 python3 dealfinder.py fetch --city "San Antonio" --state TX --max-price 250000
