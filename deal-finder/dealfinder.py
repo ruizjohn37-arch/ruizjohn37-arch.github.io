@@ -701,7 +701,8 @@ def dashboard_state():
     buyer_leads = [dict(b, added=b["name"].lower() in known)
                    for b in records.find_buyers()[:60]] if os.path.exists(records.RECORDS) else []
     return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings,
-            "leads": leads, "buyer_leads": buyer_leads, "records_count": len(records.load_records()), "drafts_waiting": len(drafts),
+            "leads": leads, "buyer_leads": buyer_leads,
+            "leads_total": len(records.build_leads()) if os.path.exists(records.RECORDS) else 0, "records_count": len(records.load_records()), "drafts_waiting": len(drafts),
             "do_not_contact": sorted(do_not_contact()), "stages": STAGES, "job": JOB,
             "setup": {"config": has_cfg,
                       "rentcast": is_set(cfg, "rentcast_api_key"),

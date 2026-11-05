@@ -385,6 +385,8 @@ function buyerText(b) {
   return `Hi ${(b.name || "").split(" ")[0] || "there"}, John Ruiz here. I'm a wholesaler in Union County building my buyers list. What towns and price range are you buying in? Reply STOP to opt out.`;
 }
 
+const compact = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1000) + "k" : n.toLocaleString();
+
 function factory() {
   const d = state.deals, by = s => d.filter(x => x.status === s).length;
   const fees = d.filter(x => x.status === "closed").reduce((a, x) => a + num(x.assignment_fee), 0);
@@ -392,8 +394,8 @@ function factory() {
   const contract = d.filter(x => x.status === "under_contract");
   const matched = contract.reduce((a, x) => a + num(x.buyer_matches), 0);
   const st = [
-    ["records", "Records loaded", (state.records_count || 0).toLocaleString(), state.records_count ? "go" : "", "rec"],
-    ["leads", "Off-market leads", (state.leads || []).length, (state.leads || []).length ? "go" : "", "rec"],
+    ["records", "Records loaded", compact(state.records_count || 0), state.records_count ? "go" : "", "rec"],
+    ["leads", "Off-market leads", compact(state.leads_total || 0), state.leads_total ? "go" : "", "rec"],
     ["pending", "New deals", by("pending"), by("pending") ? "wait" : "", "pending"],
     ["approved", "Approved", by("approved"), by("approved") ? "wait" : "", "approved"],
     ["emailed", "Contacted", by("emailed"), followDue ? "wait" : by("emailed") ? "go" : "", "emailed"],
@@ -511,7 +513,7 @@ function banner() {
   const s = state.setup || {}, msgs = [];
   if (!s.config) msgs.push("You're not set up yet. In a terminal, run <code>python3 dealfinder.py setup</code> (or double-click the start file again).");
   else {
-    if (!s.rentcast) msgs.push("Add your RentCast key to use <b>Find houses</b>: run <code>python3 dealfinder.py setup</code>. Uploading a CSV works without it.");
+    if (!s.rentcast && !state.records_count) msgs.push("Optional: add a RentCast key to use <b>Find houses</b>: run <code>python3 dealfinder.py setup</code>. Uploading a CSV works without it.");
     if (!s.email) msgs.push("Add your Gmail app password to send emails: run <code>python3 dealfinder.py setup</code>.");
   }
   $("banner").innerHTML = msgs.map(m => `<div class="banner">${m}</div>`).join("");
