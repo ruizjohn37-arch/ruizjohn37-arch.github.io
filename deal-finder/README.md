@@ -35,6 +35,17 @@ Everything works from the page, with no commands to type:
 * The top row shows emails sent, reply rate, active deals, follow-ups due, fees earned and fees in
   the pipeline. Follow-ups that are due today or overdue are listed on the right.
 
+* **Offer calculator**: enter a house's after-repair value (ARV) and repair cost. It shows the most a
+  cash buyer will pay (70% of ARV minus repairs) and the most you can offer the seller while keeping your fee.
+  It flags in red when the asking price is too high.
+* **Follow-up emails**: deals still at *Emailed* with no reply after 5 days get a short, polite follow-up.
+  There are at most 2 follow-ups, and you review them before they send.
+* **Cash buyers**: keep your buyers list with the ZIPs they buy in and their max price. Once a house is
+  **Under contract**, its card shows how many buyers match and an **Email matching buyers** button. Those
+  emails say plainly that you're assigning a contract, not listing the house. The button only works on
+  houses you actually have under contract, because marketing a house you don't control is where
+  wholesalers get in trouble with licensing laws.
+
 The dashboard only runs on your computer (`127.0.0.1`), so your leads aren't on the internet.
 
 ## Manual setup (one time)
@@ -69,7 +80,16 @@ python3 dealfinder.py draft
 # 5. Check what would go out, then send
 python3 dealfinder.py send
 python3 dealfinder.py send --confirm
+
+# 6. A few days later: polite follow-ups to anyone who hasn't replied
+python3 dealfinder.py followup
+
+# 7. Got a house under contract? Email the cash buyers who match it
+python3 dealfinder.py blast "905 Cedar Ln, San Antonio, TX 78210"
 ```
+
+Settings you can change in `config.json`: `followup_after_days` (5), `max_followups` (2),
+`mao_percent` (0.70) and `target_fee` (10000).
 
 Try it with no setup first:
 `cp config.example.json config.json && python3 dealfinder.py import sample_data/sample_listings.csv && python3 dealfinder.py score`

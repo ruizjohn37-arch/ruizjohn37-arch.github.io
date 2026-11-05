@@ -9,6 +9,8 @@ Pipeline:
     score   -> rank every property by how good a deal it looks
     draft   -> write emails for rows you marked "approved" in data/deals.csv
     send    -> send those drafts (dry run unless you pass --confirm)
+    followup -> write a polite follow-up for deals with no reply after a few days
+    blast   -> once a house is under contract, email the cash buyers who match it
     setup   -> answer a few questions once to create config.json
     dashboard -> open a page in your browser to track every deal
 
@@ -41,19 +43,22 @@ DEALS = os.path.join(DATA, "deals.csv")
 OUTBOX = os.path.join(DATA, "outbox")
 SENT_LOG = os.path.join(DATA, "sent_log.csv")
 DNC = os.path.join(DATA, "do_not_contact.txt")
+BUYERS = os.path.join(DATA, "buyers.csv")
+BUYER_COLUMNS = ["name", "email", "phone", "zips", "max_price", "property_types", "notes", "added"]
+SENT_COLUMNS = ["sent_at", "email", "address", "subject", "kind"]
 
 DEAL_COLUMNS = [
     "status", "score", "address", "zip", "price", "sqft", "price_per_sqft",
     "area_median_ppsf", "discount_vs_area_pct", "price_cut_pct", "days_on_market",
     "beds", "baths", "property_type", "motivation_flags", "contact_name",
     "contact_email", "contact_phone", "contact_role", "listing_url", "notes",
-    "offer", "assignment_fee", "follow_up", "updated",
+    "offer", "assignment_fee", "follow_up", "arv", "repairs", "updated",
 ]
 # The order a deal moves through. The dashboard uses these as its tabs.
 STAGES = ["pending", "approved", "emailed", "replied", "negotiating",
           "under_contract", "closed", "skip", "dead"]
 # Columns you edit by hand (or in the dashboard); re-scoring keeps them.
-USER_COLUMNS = ["status", "notes", "offer", "assignment_fee", "follow_up", "updated"]
+USER_COLUMNS = ["status", "notes", "offer", "assignment_fee", "follow_up", "arv", "repairs", "updated"]
 
 
 # ---------------------------------------------------------------- helpers
@@ -120,11 +125,73 @@ def do_not_contact():
         return {line.strip().lower() for line in f if line.strip()}
 
 
-def already_sent():
+def read_sent():
+    """Every email sent so far. `kind` is intro, followup1, followup2... or buyer."""
     if not os.path.exists(SENT_LOG):
-        return set()
+        return []
     with open(SENT_LOG, newline="") as f:
-        return {(r["email"].lower(), r["address"].lower()) for r in csv.DictReader(f)}
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["kind"] = r.get("kind") or "intro"
+    return rows
+
+
+def already_sent():
+    return {(r["email"].lower(), r["address"].lower(), r["kind"]) for r in read_sent()}
+
+
+def append_sent(row):
+    rows = read_sent()  # also upgrades older logs that had no `kind` column
+    rows.append(row)
+    os.makedirs(DATA, exist_ok=True)
+    with open(SENT_LOG, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SENT_COLUMNS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+def read_buyers():
+    if not os.path.exists(BUYERS):
+        return []
+    with open(BUYERS, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def write_buyers(buyers):
+    os.makedirs(DATA, exist_ok=True)
+    with open(BUYERS, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=BUYER_COLUMNS, restval="", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(buyers)
+
+
+def contract_price(deal):
+    return num(deal.get("offer")) or num(deal.get("price")) or 0
+
+
+def matching_buyers(deal, buyers):
+    """Buyers whose ZIPs and max price fit this deal (blank means 'any')."""
+    out = []
+    for b in buyers:
+        zips = [z.strip() for z in (b.get("zips") or "").replace(";", ",").split(",") if z.strip()]
+        types = (b.get("property_types") or "").lower()
+        if zips and str(deal.get("zip", ""))[:5] not in zips:
+            continue
+        if num(b.get("max_price")) and contract_price(deal) + (num(deal.get("assignment_fee")) or 0) > num(b["max_price"]):
+            continue
+        if types and deal.get("property_type") and deal["property_type"].lower() not in types:
+            continue
+        if b.get("email"):
+            out.append(b)
+    return out
+
+
+def write_draft(kind, to, address, subject, body, suffix=""):
+    os.makedirs(OUTBOX, exist_ok=True)
+    slug = "".join(c if c.isalnum() else "_" for c in address)[:60]
+    name = slug + (f"__{suffix}" if suffix else "") + ".json"
+    with open(os.path.join(OUTBOX, name), "w") as f:
+        json.dump({"kind": kind, "to": to, "address": address, "subject": subject, "body": body}, f, indent=2)
 
 
 # ---------------------------------------------------------------- fetch
@@ -408,17 +475,100 @@ def cmd_draft(args):
         if not email:
             print(f"  skip (no email): {d['address']}")
             continue
-        if email in dnc or (email, d["address"].lower()) in sent:
+        if email in dnc or (email, d["address"].lower(), "intro") in sent:
             print(f"  skip (do-not-contact or already emailed): {d['address']}")
             continue
         subject, body = build_email(d, cfg, rng)
-        slug = "".join(c if c.isalnum() else "_" for c in d["address"])[:60]
-        with open(os.path.join(OUTBOX, slug + ".json"), "w") as f:
-            json.dump({"to": email, "address": d["address"], "subject": subject, "body": body}, f, indent=2)
+        write_draft("intro", email, d["address"], subject, body)
         made += 1
         print(f"\n===== {d['address']}  ->  {email}\nSubject: {subject}\n\n{body}")
     print(f"\n{made} email(s) written. Review and edit them, then send "
           "(Send button in the dashboard, or `send` then `send --confirm`).")
+
+
+FOLLOWUPS = [
+    "Hi {first},\n\nJust following up on my note about {street}. Is the seller still open to "
+    "offers? If now's not a good time, no worries.",
+    "Hi {first},\n\nCircling back on {street}. If the seller would consider a cash offer that "
+    "closes as-is on their timeline, I'd love to hear what number works for them.",
+    "Hey {first},\n\nOne last check-in on {street}. If anything changes with the seller, I'm happy "
+    "to take a look. Thanks either way!",
+]
+
+
+def cmd_followup(args):
+    """Draft a short follow-up for deals still at 'Emailed' with no reply after N days."""
+    cfg = load_config()
+    days = args.days or cfg.get("followup_after_days", 5)
+    max_n = cfg.get("max_followups", 2)
+    deals, sent, dnc = read_deals(), read_sent(), do_not_contact()
+    now, made = datetime.now(), 0
+    for d in deals:
+        if d["status"] != "emailed":
+            continue
+        email = d["contact_email"].strip().lower()
+        mine = [r for r in sent if r["address"].lower() == d["address"].lower() and r["email"].lower() == email
+                and (r["kind"] == "intro" or r["kind"].startswith("followup"))]
+        if not mine or email in dnc:
+            continue
+        done = len([r for r in mine if r["kind"].startswith("followup")])
+        last = max(datetime.fromisoformat(r["sent_at"]) for r in mine)
+        if done >= max_n or (now - last).days < days:
+            continue
+        street = d["address"].split(",")[0].strip()
+        first = (d["contact_name"] or "there").split()[0].title()
+        kind = f"followup{done + 1}"
+        body = FOLLOWUPS[min(done, len(FOLLOWUPS) - 1)].format(first=first, street=street)
+        body += f"\n\n{cfg['your_name']}\n" + "\n".join(filter(None, [cfg.get("your_phone"), cfg.get("your_email")]))
+        sender = cfg.get("your_company") or cfg["your_name"]
+        body += (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
+                 "If you'd rather not hear from me, just reply \"remove\" and I won't contact you again.")
+        write_draft(kind, email, d["address"], f"Re: {street}", body, kind)
+        made += 1
+        print(f"  follow-up #{done + 1} -> {email}  ({d['address']})")
+    print(f"\n{made} follow-up(s) written. Review them, then send.")
+
+
+def cmd_blast(args):
+    """Draft emails to matching cash buyers for a deal you have under contract."""
+    cfg = load_config()
+    deal = next((d for d in read_deals() if d["address"].lower() == args.address.lower()), None)
+    if not deal:
+        sys.exit(f"No deal with address {args.address!r}.")
+    if deal["status"] != "under_contract":
+        sys.exit("Only email buyers about a house you actually have under contract. "
+                 "Set its stage to Under contract first.")
+    buyers = matching_buyers(deal, read_buyers())
+    if not buyers:
+        sys.exit("No buyers match this deal yet. Add cash buyers (ZIPs and max price) in the dashboard.")
+    sent, dnc = already_sent(), do_not_contact()
+    street = deal["address"].split(",")[0].strip()
+    price = contract_price(deal) + (num(deal.get("assignment_fee")) or 0)
+    lines = [f"Price: ${price:,.0f} (assignment of contract)"]
+    if num(deal.get("arv")):
+        lines.append(f"Estimated ARV: ${num(deal['arv']):,.0f}")
+    if num(deal.get("repairs")):
+        lines.append(f"Estimated repairs: ${num(deal['repairs']):,.0f}")
+    beds, baths = str(deal.get("beds", "")).replace(".0", ""), str(deal.get("baths", "")).replace(".0", "")
+    lines.append(f"{beds or '?'} bed / {baths or '?'} bath, {deal.get('sqft') or '?'} sqft")
+    made = 0
+    for b in buyers:
+        email = b["email"].strip().lower()
+        if email in dnc or (email, deal["address"].lower(), "buyer") in sent:
+            continue
+        first = (b.get("name") or "there").split()[0].title()
+        body = (f"Hi {first},\n\nI have {deal['address']} under contract and I'm looking to assign the "
+                f"contract to a cash buyer. Here are the numbers:\n\n" + "\n".join("  - " + l for l in lines) +
+                "\n\nTo be clear, I'm selling my contract rights, not listing the house. Please do your own "
+                "walkthrough and numbers. Want to set up a time to see it?\n\n"
+                f"{cfg['your_name']}\n" + "\n".join(filter(None, [cfg.get("your_phone"), cfg.get("your_email")])) +
+                f"\n\n--\n{cfg.get('your_company') or cfg['your_name']} | {cfg['mailing_address']}\n"
+                "Reply \"remove\" to stop getting deals from me.")
+        write_draft("buyer", email, deal["address"], f"Off-market deal: {street}", body,
+                    "buyer_" + "".join(c if c.isalnum() else "_" for c in email))
+        made += 1
+        print(f"  buyer email -> {email}")
+    print(f"\n{made} buyer email(s) written for {deal['address']}. Review them, then send.")
 
 
 def cmd_send(args):
@@ -432,7 +582,8 @@ def cmd_send(args):
     for name in drafts:
         with open(os.path.join(OUTBOX, name)) as f:
             msg = json.load(f)
-        if msg["to"].lower() in dnc or (msg["to"].lower(), msg["address"].lower()) in sent:
+        msg.setdefault("kind", "intro")
+        if msg["to"].lower() in dnc or (msg["to"].lower(), msg["address"].lower(), msg["kind"]) in sent:
             continue
         todo.append((name, msg))
     todo = todo[:limit]
@@ -452,28 +603,23 @@ def cmd_send(args):
         server.login(cfg["smtp_user"], cfg["smtp_app_password"])
     except smtplib.SMTPAuthenticationError:
         sys.exit("Gmail rejected the login. Check the Gmail address and app password with `setup`.")
-    new_log = not os.path.exists(SENT_LOG)
-    with open(SENT_LOG, "a", newline="") as logf:
-        log = csv.writer(logf)
-        if new_log:
-            log.writerow(["sent_at", "email", "address", "subject"])
-        for i, (name, m) in enumerate(todo):
-            em = EmailMessage()
-            em["From"] = f"{cfg['your_name']} <{cfg['smtp_user']}>"
-            em["To"] = m["to"]
-            em["Subject"] = m["subject"]
-            em.set_content(m["body"])
-            server.send_message(em)
-            log.writerow([datetime.now().isoformat(timespec="seconds"), m["to"], m["address"], m["subject"]])
-            logf.flush()
-            os.rename(os.path.join(OUTBOX, name), os.path.join(OUTBOX, name + ".sent"))
-            print(f"  sent -> {m['to']}  ({m['address']})")
-            if i < len(todo) - 1:
-                # spacing sends out keeps you out of spam filters and looks like a person
-                time.sleep(random.uniform(cfg["min_seconds_between_emails"], cfg["max_seconds_between_emails"]))
+    for i, (name, m) in enumerate(todo):
+        em = EmailMessage()
+        em["From"] = f"{cfg['your_name']} <{cfg['smtp_user']}>"
+        em["To"] = m["to"]
+        em["Subject"] = m["subject"]
+        em.set_content(m["body"])
+        server.send_message(em)
+        append_sent({"sent_at": datetime.now().isoformat(timespec="seconds"), "email": m["to"],
+                     "address": m["address"], "subject": m["subject"], "kind": m["kind"]})
+        os.rename(os.path.join(OUTBOX, name), os.path.join(OUTBOX, name + ".sent"))
+        print(f"  sent -> {m['to']}  ({m['address']})")
+        if i < len(todo) - 1:
+            # spacing sends out keeps you out of spam filters and looks like a person
+            time.sleep(random.uniform(cfg["min_seconds_between_emails"], cfg["max_seconds_between_emails"]))
     server.quit()
     # move the deals you just emailed to the "emailed" stage
-    sent_addrs = {m["address"].lower() for _, m in todo}
+    sent_addrs = {m["address"].lower() for _, m in todo if m["kind"] == "intro"}
     deals = read_deals() if os.path.exists(DEALS) else []
     for d in deals:
         if d["address"].lower() in sent_addrs and d["status"] == "approved":
@@ -520,9 +666,7 @@ def cmd_setup(args):
 def dashboard_state():
     deals = read_deals() if os.path.exists(DEALS) else []
     sent = []
-    if os.path.exists(SENT_LOG):
-        with open(SENT_LOG, newline="") as f:
-            sent = list(csv.DictReader(f))
+    sent = read_sent()
     drafts = []
     if os.path.isdir(OUTBOX):
         for n in sorted(os.listdir(OUTBOX)):
@@ -531,7 +675,12 @@ def dashboard_state():
                     drafts.append({"file": n, **json.load(f)})
     has_cfg = os.path.exists(os.path.join(HERE, "config.json"))
     cfg = load_config() if has_cfg else {}
-    return {"deals": deals, "sent": sent, "drafts": drafts, "drafts_waiting": len(drafts),
+    buyers = read_buyers()
+    for d in deals:
+        d["buyer_matches"] = len(matching_buyers(d, buyers))
+    settings = {"mao_percent": cfg.get("mao_percent", 0.70), "target_fee": cfg.get("target_fee", 10000),
+                "followup_after_days": cfg.get("followup_after_days", 5)}
+    return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings, "drafts_waiting": len(drafts),
             "do_not_contact": sorted(do_not_contact()), "stages": STAGES, "job": JOB,
             "setup": {"config": has_cfg,
                       "rentcast": is_set(cfg, "rentcast_api_key"),
@@ -622,6 +771,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         argparse.Namespace(csv=path, role=body.get("role") or "listing agent"))
             elif action == "draft":
                 run_job("Writing emails", cmd_draft, argparse.Namespace())
+            elif action == "followup":
+                run_job("Writing follow-ups", cmd_followup, argparse.Namespace(days=None))
+            elif action == "blast":
+                run_job("Writing buyer emails", cmd_blast, argparse.Namespace(address=body.get("address", "")))
             elif action == "send":
                 run_job("Sending emails", cmd_send, argparse.Namespace(confirm=True))
             else:
@@ -641,6 +794,18 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             with open(path, "w") as f:
                 json.dump(d, f, indent=2)
             return self._send(200, d)
+        if self.path == "/api/buyer":
+            buyers = read_buyers()
+            email = (body.get("email") or "").strip().lower()
+            if "@" not in email:
+                return self._send(400, {"error": "Buyer needs an email."})
+            buyers = [b for b in buyers if b["email"].lower() != email]
+            if not body.get("delete"):
+                row = {k: str(body.get(k, "")).strip() for k in BUYER_COLUMNS}
+                row["email"], row["added"] = email, row["added"] or datetime.now().date().isoformat()
+                buyers.append(row)
+            write_buyers(buyers)
+            return self._send(200, {"ok": True})
         if self.path == "/api/dnc":
             email = (body.get("email") or "").strip().lower()
             if "@" not in email:
@@ -693,6 +858,14 @@ def main():
     s.set_defaults(func=cmd_score)
 
     sub.add_parser("draft", help="write emails for approved deals").set_defaults(func=cmd_draft)
+
+    fu = sub.add_parser("followup", help="write follow-ups for emailed deals with no reply")
+    fu.add_argument("--days", type=int, help="wait this many days after the last email (default 5)")
+    fu.set_defaults(func=cmd_followup)
+
+    bl = sub.add_parser("blast", help="write emails to matching cash buyers for a deal under contract")
+    bl.add_argument("address", help="the deal's address, exactly as in deals.csv")
+    bl.set_defaults(func=cmd_blast)
 
     se = sub.add_parser("send", help="send drafts (dry run unless --confirm)")
     se.add_argument("--confirm", action="store_true")

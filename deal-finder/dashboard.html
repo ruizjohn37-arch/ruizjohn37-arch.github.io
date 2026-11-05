@@ -23,7 +23,7 @@ header { padding: 20px 16px 8px; max-width: 1200px; margin: 0 auto;
 h1 { margin: 0; font-size: 22px; }
 .sub { color: var(--muted); font-size: 13px; }
 main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 12px 0 18px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 10px; margin: 12px 0 18px; }
 .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .kpi .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .kpi .l { color: var(--muted); font-size: 12px; }
@@ -50,8 +50,21 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
   background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
 .pill.hot { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
 .score { font-weight: 650; font-variant-numeric: tabular-nums; }
-.fields { display: grid; grid-template-columns: 150px 110px 110px 140px 1fr; gap: 8px; margin-top: 10px; }
-@media (max-width: 700px) { .fields { grid-template-columns: 1fr 1fr; } .fields .notes { grid-column: 1 / -1; } }
+.fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.fields .notes { grid-column: span 2; }
+@media (max-width: 700px) { .fields { grid-template-columns: 1fr 1fr; } }
+.calc { grid-column: span 2; font-size: 12px; background: var(--accent-soft); border-radius: 6px; padding: 6px 9px; align-self: end; }
+.calc b { font-variant-numeric: tabular-nums; }
+.calc .bad { color: var(--bad); }
+.dealbtns { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+.dealbtns .btn { margin: 0; padding: 5px 10px; font-size: 12px; }
+.buyers-form { display: grid; grid-template-columns: repeat(6, 1fr) auto; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+@media (max-width: 900px) { .buyers-form { grid-template-columns: 1fr 1fr; } }
+.buyers-form input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.buyers-form .btn { margin: 0; }
+.buyer { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.buyer .meta { margin: 0; }
+.kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; background: var(--line); border-radius: 4px; padding: 1px 6px; margin-right: 6px; }
 .fields label { font-size: 11px; color: var(--muted); display: block; }
 .fields select, .fields input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
@@ -143,6 +156,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
         <div id="approved-n" class="hint" style="margin-top:0"></div>
         <button class="btn" id="b-draft">Write emails</button>
         <div class="hint">Set a house's stage to <b>Approved</b> below first. You'll see every email before it goes out.</div>
+        <button class="btn ghost" id="b-followup">Write follow-ups</button>
+        <div class="hint" id="followup-n"></div>
       </div>
     </div>
   </section>
@@ -161,18 +176,31 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
       <div id="deals"></div>
     </section>
     <aside class="side">
-      <section class="card"><h2>Follow-ups</h2><ul class="list" id="followups"></ul></section>
+      <section class="card"><h2>Reminders</h2><ul class="list" id="followups"></ul></section>
       <section class="card"><h2>Pipeline</h2><div class="funnel" id="funnel"></div></section>
       <section class="card"><h2>Recent emails</h2><ul class="list" id="sent"></ul></section>
     </aside>
   </div>
+  <section class="card" style="margin-top:16px">
+    <h2>Cash buyers <span class="sub" id="buyers-n"></span></h2>
+    <div class="buyers-form">
+      <input id="by-name" placeholder="Name">
+      <input id="by-email" placeholder="Email" type="email">
+      <input id="by-phone" placeholder="Phone">
+      <input id="by-zips" placeholder="ZIPs they buy (comma sep)">
+      <input id="by-max" placeholder="Max price" inputmode="numeric">
+      <input id="by-notes" placeholder="Notes (flips, rentals…)">
+      <button class="btn" id="b-buyer">Add buyer</button>
+    </div>
+    <div id="buyers"></div>
+  </section>
 </main>
 <div class="toast" id="toast"></div>
 <script>
 const LABEL = { pending: "New", approved: "Approved", emailed: "Emailed", replied: "Replied",
   negotiating: "Negotiating", under_contract: "Under contract", closed: "Closed",
   skip: "Skipped", dead: "Dead" };
-let state = { deals: [], sent: [], stages: [], drafts: [], drafts_waiting: 0, job: {}, setup: {} };
+let state = { deals: [], sent: [], stages: [], drafts: [], buyers: [], settings: {}, drafts_waiting: 0, job: {}, setup: {} };
 let polling = null;
 const post = (url, body) => fetch(url, { method: "POST",
   headers: { "Content-Type": "application/json", "X-Dashboard": "1" }, body: JSON.stringify(body) });
@@ -200,11 +228,9 @@ async function save(address, patch) {
     headers: { "Content-Type": "application/json", "X-Dashboard": "1" },
     body: JSON.stringify({ address, ...patch }) });
   if (!r.ok) { toast("Couldn't save"); return; }
-  const updated = await r.json();
-  const i = state.deals.findIndex(d => d.address === address);
-  state.deals[i] = updated;
   toast("Saved");
-  render(true);
+  const r2 = await fetch("/api/state"); state = await r2.json();
+  render(true); updateCalc(address);
 }
 
 function kpis() {
@@ -220,9 +246,10 @@ function kpis() {
     ["Emails sent", state.sent.length],
     ["Reply rate", emailed ? Math.round(replied / emailed * 100) + "%" : "—"],
     ["Active deals", d.filter(x => active.includes(x.status)).length],
-    ["Follow-ups due", due, due ? "alert" : ""],
+    ["Reminders due", due, due ? "alert" : ""],
     ["Fees earned", money(earned), "money"],
     ["Fees in pipeline", money(pipeline)],
+    ["Cash buyers", (state.buyers || []).length],
   ];
   $("kpis").innerHTML = items.map(([l, v, c]) =>
     `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
@@ -233,6 +260,21 @@ function tabs() {
   const list = [["all", "All", state.deals.length], ...state.stages.map(s => [s, LABEL[s] || s, counts[s] || 0])];
   $("tabs").innerHTML = list.map(([k, l, n]) =>
     `<button class="tab ${tab === k ? "on" : ""}" data-tab="${k}">${l}<span class="n">${n}</span></button>`).join("");
+}
+
+function calcText(d) {
+  const arv = num(d.arv), rep = num(d.repairs), pct = num(state.settings.mao_percent) || 0.7;
+  const fee = num(d.assignment_fee) || num(state.settings.target_fee) || 10000;
+  if (!arv) return `Enter the ARV and repairs to get your max offer (${Math.round(pct * 100)}% rule).`;
+  const mao = arv * pct - rep, offer = mao - fee, ask = num(d.price);
+  const gap = ask ? ` · asking ${money(ask)}${ask > offer ? ` <span class="bad">(${money(ask - offer)} over)</span>` : " ✓"}` : "";
+  return `Buyer's max: <b>${money(mao)}</b> · Offer seller up to <b>${money(offer)}</b> to keep a ${money(fee)} fee${gap}`;
+}
+
+function updateCalc(address) {
+  const d = state.deals.find(x => x.address === address);
+  const el = [...document.querySelectorAll(".deal")].find(e => e.dataset.addr === address);
+  if (d && el) el.querySelector("[data-calc]").innerHTML = calcText(d);
 }
 
 function dealRow(d) {
@@ -258,9 +300,15 @@ function dealRow(d) {
       <div><label>Stage</label><select data-f="status">${opts}</select></div>
       <div><label>Your offer</label><input data-f="offer" inputmode="numeric" value="${esc(d.offer)}" placeholder="$"></div>
       <div><label>Assignment fee</label><input data-f="assignment_fee" inputmode="numeric" value="${esc(d.assignment_fee)}" placeholder="$"></div>
-      <div><label>Follow up on</label><input data-f="follow_up" type="date" value="${esc(d.follow_up)}"></div>
-      <div class="notes"><label>Notes</label><input data-f="notes" value="${esc(d.notes)}" placeholder="Called, left VM…"></div>
+      <div><label>Remind me on</label><input data-f="follow_up" type="date" value="${esc(d.follow_up)}"></div>
+      <div><label>After-repair value (ARV)</label><input data-f="arv" inputmode="numeric" value="${esc(d.arv)}" placeholder="$"></div>
+      <div><label>Repairs</label><input data-f="repairs" inputmode="numeric" value="${esc(d.repairs)}" placeholder="$"></div>
+      <div class="calc" data-calc>${calcText(d)}</div>
+      <div class="notes" style="grid-column:1/-1"><label>Notes</label><input data-f="notes" value="${esc(d.notes)}" placeholder="Called, left VM…"></div>
     </div>
+    ${d.status === "under_contract" ? `<div class="dealbtns">${d.buyer_matches
+      ? `<button class="btn" data-blast>Email ${d.buyer_matches} matching buyer${d.buyer_matches === 1 ? "" : "s"}</button>`
+      : "No cash buyers match this one yet. Add some below."}</div>` : ""}
   </div>`;
 }
 
@@ -279,7 +327,7 @@ function followups() {
     `<li><div class="${d.follow_up < today() ? "overdue" : ""}">${d.follow_up === today() ? "Today" : d.follow_up}</div>
      <div>${esc(d.address.split(",")[0])} · ${LABEL[d.status] || d.status}</div>
      ${d.notes ? `<div class="when">${esc(d.notes)}</div>` : ""}</li>`).join("") :
-    `<li class="empty">Set a "Follow up on" date on a deal and it shows up here.</li>`;
+    `<li class="empty">Set a "Remind me on" date on a deal (call back, check on the seller) and it shows up here.</li>`;
 }
 
 function funnel() {
@@ -317,7 +365,7 @@ function jobBox() {
     ${j.running ? "" : `<button class="tab" id="b-hide">Hide</button>`}</div>
     ${out ? `<pre>${esc(out)}</pre>` : ""}</div>`;
   const h = $("b-hide"); if (h) h.onclick = () => { state.job = {}; $("job").innerHTML = ""; };
-  ["b-fetch", "b-import", "b-draft", "b-send"].forEach(id => $(id).disabled = !!j.running);
+  ["b-fetch", "b-import", "b-draft", "b-send", "b-followup"].forEach(id => $(id).disabled = !!j.running);
 }
 
 function draftsBox() {
@@ -329,7 +377,7 @@ function draftsBox() {
   const open = document.activeElement && document.activeElement.closest && document.activeElement.closest(".draft");
   if (open) return; // don't wipe what you're typing
   $("drafts").innerHTML = ds.map(d => `<div class="draft" data-file="${esc(d.file)}">
-    <div class="to">To ${esc(d.to)} · ${esc(d.address)}</div>
+    <div class="to"><span class="kind">${esc({ intro: "First email", buyer: "To buyer" }[d.kind || "intro"] || "Follow-up")}</span>To ${esc(d.to)} · ${esc(d.address)}</div>
     <input data-k="subject" value="${esc(d.subject)}">
     <textarea data-k="body">${esc(d.body)}</textarea>
     <button class="btn danger" data-del>Don't send this one</button>
@@ -351,10 +399,34 @@ function poll() {
   }, 2000);
 }
 
+function followupCount() {
+  const days = num(state.settings.followup_after_days) || 5, now = Date.now();
+  return state.deals.filter(d => {
+    if (d.status !== "emailed") return false;
+    const mine = state.sent.filter(s => s.address.toLowerCase() === d.address.toLowerCase() && s.kind !== "buyer");
+    if (!mine.length) return false;
+    const last = Math.max(...mine.map(s => Date.parse(s.sent_at)));
+    return (now - last) / 864e5 >= days && mine.filter(s => s.kind.startsWith("followup")).length < 2;
+  }).length;
+}
+
+function buyersBox() {
+  const bs = state.buyers || [];
+  $("buyers-n").textContent = bs.length ? `· ${bs.length}` : "";
+  $("buyers").innerHTML = bs.length ? bs.map(b => `<div class="buyer" data-email="${esc(b.email)}">
+    <div><b>${esc(b.name || b.email)}</b>
+      <div class="meta">${esc(b.email)}${b.phone ? " · " + esc(b.phone) : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
+    <button class="btn danger" data-rm style="margin:0">Remove</button></div>`).join("") :
+    `<div class="empty">No cash buyers yet. Every wholesale deal needs one, so start this list before you sign a contract.
+      Good places to find them: recent cash sales in county records, local investor meetups, and "we buy houses" signs.</div>`;
+}
+
 function render(keepList) {
   const n = state.deals.length;
   $("sub").textContent = `${n} ${n === 1 ? "property" : "properties"} · updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-  banner(); kpis(); jobBox(); draftsBox(); tabs(); followups(); funnel(); sentList();
+  banner(); kpis(); jobBox(); draftsBox(); buyersBox();
+  const fc = followupCount();
+  $("followup-n").textContent = fc ? `${fc} deal${fc === 1 ? "" : "s"} due for a follow-up.` : `Follow-ups go out ${num(state.settings.followup_after_days) || 5}+ days after no reply (max 2).`; tabs(); followups(); funnel(); sentList();
   const typing = document.activeElement && $("deals").contains(document.activeElement);
   if (!keepList && !typing) dealsList();
 }
@@ -379,6 +451,25 @@ $("b-import").onclick = async () => {
   run("import", { csv: await f.text(), role: $("f-role").value });
 };
 $("b-draft").onclick = () => run("draft");
+$("b-followup").onclick = () => run("followup");
+$("deals").addEventListener("click", e => {
+  if (!e.target.hasAttribute("data-blast")) return;
+  run("blast", { address: e.target.closest(".deal").dataset.addr });
+});
+$("b-buyer").onclick = async () => {
+  const v = id => $(id).value.trim();
+  const r = await post("/api/buyer", { name: v("by-name"), email: v("by-email"), phone: v("by-phone"),
+    zips: v("by-zips"), max_price: v("by-max").replace(/[$,]/g, ""), notes: v("by-notes") });
+  if (!r.ok) { toast((await r.json()).error || "Couldn't save"); return; }
+  ["by-name", "by-email", "by-phone", "by-zips", "by-max", "by-notes"].forEach(id => $(id).value = "");
+  await load(); toast("Buyer added");
+};
+$("buyers").addEventListener("click", async e => {
+  if (!e.target.hasAttribute("data-rm")) return;
+  const email = e.target.closest(".buyer").dataset.email;
+  if (!confirm(`Remove ${email} from your buyers?`)) return;
+  await post("/api/buyer", { email, delete: true }); await load(); toast("Removed");
+});
 $("b-send").onclick = () => {
   const n = (state.drafts || []).length;
   if (confirm(`Send ${n} email${n === 1 ? "" : "s"} now? They go out 1–3 minutes apart (max 20 per run).`)) run("send");
