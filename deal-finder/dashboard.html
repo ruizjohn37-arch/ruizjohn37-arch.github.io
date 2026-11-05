@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deal Tracker</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --ink: #16181d; --muted: #646b78; --line: #e3e6eb;
+  --accent: #1f6feb; --accent-soft: #e8f0fe; --good: #1a7f37; --warn: #b35900; --bad: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --card: #171a21; --ink: #e8eaee; --muted: #9aa1ad; --line: #2a2f39;
+    --accent: #5b9bff; --accent-soft: #1b2638; --good: #4cc26a; --warn: #f0a24a; --bad: #ff6b6b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1200px; margin: 0 auto;
+  display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+h1 { margin: 0; font-size: 22px; }
+.sub { color: var(--muted); font-size: 13px; }
+main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 10px; margin: 12px 0 18px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.kpi .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--muted); font-size: 12px; }
+.kpi.money .v { color: var(--good); }
+.kpi.alert .v { color: var(--warn); }
+.grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.card h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.tab { border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 999px;
+  padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab .n { opacity: .7; margin-left: 4px; }
+.search { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--ink); font: inherit; }
+.toolbar { padding: 10px 14px; }
+.deal { border-top: 1px solid var(--line); padding: 12px 14px; }
+.deal:first-child { border-top: 0; }
+.row1 { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.addr { font-weight: 600; }
+.meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px;
+  background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
+.pill.hot { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.score { font-weight: 650; font-variant-numeric: tabular-nums; }
+.fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.fields .notes { grid-column: span 2; }
+@media (max-width: 700px) { .fields { grid-template-columns: 1fr 1fr; } }
+.calc { grid-column: span 2; font-size: 12px; background: var(--accent-soft); border-radius: 6px; padding: 6px 9px; align-self: end; }
+.calc b { font-variant-numeric: tabular-nums; }
+.calc .bad { color: var(--bad); }
+.dealbtns { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+.dealbtns .btn { margin: 0; padding: 5px 10px; font-size: 12px; }
+.buyers-form { display: grid; grid-template-columns: repeat(6, 1fr) auto; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+@media (max-width: 900px) { .buyers-form { grid-template-columns: 1fr 1fr; } }
+.buyers-form input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.buyers-form .btn { margin: 0; }
+.buyer { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.buyer .meta { margin: 0; }
+.kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; background: var(--line); border-radius: 4px; padding: 1px 6px; margin-right: 6px; }
+.fields label { font-size: 11px; color: var(--muted); display: block; }
+.fields select, .fields input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.contact { font-size: 12px; margin-top: 6px; }
+.contact a { color: var(--accent); }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.list li:first-child { border-top: 0; }
+.list .when { color: var(--muted); font-size: 11px; }
+.overdue { color: var(--bad); font-weight: 600; }
+.empty { padding: 24px 14px; color: var(--muted); text-align: center; }
+.side { display: grid; gap: 16px; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink);
+  color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; }
+.toast.show { opacity: 1; }
+.funnel { padding: 12px 14px; display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 110px 1fr 36px; gap: 8px; align-items: center; font-size: 12px; }
+.bar .track { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); }
+.bar .num { text-align: right; font-variant-numeric: tabular-nums; }
+.actions { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 900px) { .actions { grid-template-columns: 1fr; } }
+.pad { padding: 12px 14px; }
+.form { display: grid; grid-template-columns: 1fr 70px 90px 110px; gap: 8px; }
+@media (max-width: 500px) { .form { grid-template-columns: 1fr 1fr; } }
+.form input, .form select, textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.btn { margin-top: 10px; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
+  font: inherit; font-weight: 600; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.btn.danger { background: transparent; color: var(--bad); border: 1px solid var(--line); font-weight: 400; }
+.btn:disabled { opacity: .5; cursor: default; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.banner { background: color-mix(in srgb, var(--warn) 14%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  border-radius: 10px; padding: 10px 14px; margin: 8px 0 0; font-size: 13px; }
+.banner code, .hint code { background: var(--line); padding: 1px 5px; border-radius: 4px; }
+.job { border-radius: 10px; border: 1px solid var(--line); background: var(--card); margin-bottom: 16px; }
+.job pre { margin: 0; padding: 10px 14px; max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+.job .head { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; display: flex; justify-content: space-between; }
+.draft { border-top: 1px solid var(--line); padding: 12px 14px; }
+.draft:first-child { border-top: 0; }
+.draft input { width: 100%; margin: 4px 0 6px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; }
+.draft textarea { min-height: 180px; resize: vertical; font-family: inherit; }
+.draft .to { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Deal Tracker</h1>
+    <div class="sub" id="sub">Loading…</div>
+  </div>
+  <button class="tab" id="refresh">Refresh</button>
+</header>
+<main>
+  <div id="banner"></div>
+  <section class="kpis" id="kpis"></section>
+  <div id="job"></div>
+  <section class="actions">
+    <div class="card">
+      <h2>1 · Find houses</h2>
+      <div class="pad">
+        <div class="form">
+          <input id="f-city" placeholder="City">
+          <input id="f-state" placeholder="State" maxlength="2">
+          <input id="f-zip" placeholder="or ZIP" inputmode="numeric">
+          <input id="f-max" placeholder="Max price" inputmode="numeric">
+        </div>
+        <button class="btn" id="b-fetch">Find houses</button>
+        <div class="hint">Pulls active listings and ranks them. Uses 1 RentCast request per 500 houses.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>…or upload a list</h2>
+      <div class="pad">
+        <input type="file" id="f-csv" accept=".csv">
+        <select id="f-role" style="margin-top:8px;width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
+          <option value="listing agent">Contacts are listing agents</option>
+          <option value="owner">Contacts are homeowners</option>
+        </select>
+        <button class="btn ghost" id="b-import">Upload CSV</button>
+        <div class="hint">PropStream export, county list, or your own spreadsheet.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>2 · Email approved houses</h2>
+      <div class="pad">
+        <div id="approved-n" class="hint" style="margin-top:0"></div>
+        <button class="btn" id="b-draft">Write emails</button>
+        <div class="hint">Set a house's stage to <b>Approved</b> below first. You'll see every email before it goes out.</div>
+        <button class="btn ghost" id="b-followup">Write follow-ups</button>
+        <div class="hint" id="followup-n"></div>
+      </div>
+    </div>
+  </section>
+  <section class="card" id="drafts-card" style="margin-bottom:16px;display:none">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
+      <span>3 · Review emails before sending</span>
+      <button class="btn" id="b-send" style="margin:0">Send</button>
+    </h2>
+    <div id="drafts"></div>
+  </section>
+  <div class="grid">
+    <section class="card">
+      <h2>Properties</h2>
+      <div class="tabs" id="tabs"></div>
+      <div class="toolbar"><input class="search" id="q" placeholder="Search address, ZIP, contact, notes…"></div>
+      <div id="deals"></div>
+    </section>
+    <aside class="side">
+      <section class="card"><h2>Reminders</h2><ul class="list" id="followups"></ul></section>
+      <section class="card"><h2>Pipeline</h2><div class="funnel" id="funnel"></div></section>
+      <section class="card"><h2>Recent emails</h2><ul class="list" id="sent"></ul></section>
+    </aside>
+  </div>
+  <section class="card" style="margin-top:16px">
+    <h2>Cash buyers <span class="sub" id="buyers-n"></span></h2>
+    <div class="buyers-form">
+      <input id="by-name" placeholder="Name">
+      <input id="by-email" placeholder="Email" type="email">
+      <input id="by-phone" placeholder="Phone">
+      <input id="by-zips" placeholder="ZIPs they buy (comma sep)">
+      <input id="by-max" placeholder="Max price" inputmode="numeric">
+      <input id="by-notes" placeholder="Notes (flips, rentals…)">
+      <button class="btn" id="b-buyer">Add buyer</button>
+    </div>
+    <div id="buyers"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const LABEL = { pending: "New", approved: "Approved", emailed: "Emailed", replied: "Replied",
+  negotiating: "Negotiating", under_contract: "Under contract", closed: "Closed",
+  skip: "Skipped", dead: "Dead" };
+let state = { deals: [], sent: [], stages: [], drafts: [], buyers: [], settings: {}, drafts_waiting: 0, job: {}, setup: {} };
+let polling = null;
+const post = (url, body) => fetch(url, { method: "POST",
+  headers: { "Content-Type": "application/json", "X-Dashboard": "1" }, body: JSON.stringify(body) });
+const tidy = v => v === "" || v == null ? "?" : String(v).replace(/\.0$/, "");
+let tab = "all";
+try { tab = localStorage.getItem("tab") || "all"; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+const money = n => "$" + Math.round(n).toLocaleString();
+const num = v => { const n = parseFloat(String(v || "").replace(/[$,]/g, "")); return isNaN(n) ? 0 : n; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const today = () => new Date().toISOString().slice(0, 10);
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1600); }
+
+async function load() {
+  const r = await fetch("/api/state");
+  state = await r.json();
+  render();
+}
+
+async function save(address, patch) {
+  const r = await fetch("/api/deal", { method: "POST",
+    headers: { "Content-Type": "application/json", "X-Dashboard": "1" },
+    body: JSON.stringify({ address, ...patch }) });
+  if (!r.ok) { toast("Couldn't save"); return; }
+  toast("Saved");
+  const r2 = await fetch("/api/state"); state = await r2.json();
+  render(true); updateCalc(address);
+}
+
+function kpis() {
+  const d = state.deals, by = s => d.filter(x => x.status === s).length;
+  const active = ["replied", "negotiating", "under_contract"];
+  const due = d.filter(x => x.follow_up && x.follow_up <= today() && !["closed", "dead", "skip"].includes(x.status)).length;
+  const earned = d.filter(x => x.status === "closed").reduce((a, x) => a + num(x.assignment_fee), 0);
+  const pipeline = d.filter(x => active.includes(x.status)).reduce((a, x) => a + num(x.assignment_fee), 0);
+  const replied = d.filter(x => ["replied", "negotiating", "under_contract", "closed"].includes(x.status)).length;
+  const emailed = new Set(state.sent.map(s => s.address.toLowerCase())).size;
+  const items = [
+    ["Properties found", d.length],
+    ["Emails sent", state.sent.length],
+    ["Reply rate", emailed ? Math.round(replied / emailed * 100) + "%" : "—"],
+    ["Active deals", d.filter(x => active.includes(x.status)).length],
+    ["Reminders due", due, due ? "alert" : ""],
+    ["Fees earned", money(earned), "money"],
+    ["Fees in pipeline", money(pipeline)],
+    ["Cash buyers", (state.buyers || []).length],
+  ];
+  $("kpis").innerHTML = items.map(([l, v, c]) =>
+    `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+}
+
+function tabs() {
+  const counts = {}; state.deals.forEach(d => counts[d.status] = (counts[d.status] || 0) + 1);
+  const list = [["all", "All", state.deals.length], ...state.stages.map(s => [s, LABEL[s] || s, counts[s] || 0])];
+  $("tabs").innerHTML = list.map(([k, l, n]) =>
+    `<button class="tab ${tab === k ? "on" : ""}" data-tab="${k}">${l}<span class="n">${n}</span></button>`).join("");
+}
+
+function calcText(d) {
+  const arv = num(d.arv), rep = num(d.repairs), pct = num(state.settings.mao_percent) || 0.7;
+  const fee = num(d.assignment_fee) || num(state.settings.target_fee) || 10000;
+  if (!arv) return `Enter the ARV and repairs to get your max offer (${Math.round(pct * 100)}% rule).`;
+  const mao = arv * pct - rep, offer = mao - fee, ask = num(d.price);
+  const gap = ask ? ` · asking ${money(ask)}${ask > offer ? ` <span class="bad">(${money(ask - offer)} over)</span>` : " ✓"}` : "";
+  return `Buyer's max: <b>${money(mao)}</b> · Offer seller up to <b>${money(offer)}</b> to keep a ${money(fee)} fee${gap}`;
+}
+
+function updateCalc(address) {
+  const d = state.deals.find(x => x.address === address);
+  const el = [...document.querySelectorAll(".deal")].find(e => e.dataset.addr === address);
+  if (d && el) el.querySelector("[data-calc]").innerHTML = calcText(d);
+}
+
+function dealRow(d) {
+  const flags = d.motivation_flags ? d.motivation_flags.split(";").map(f => `<span class="pill">${esc(f.trim())}</span>`).join("") : "";
+  const hot = num(d.discount_vs_area_pct) >= 15 ? `<span class="pill hot">${d.discount_vs_area_pct}% under area</span>` : "";
+  const opts = state.stages.map(s => `<option value="${s}" ${d.status === s ? "selected" : ""}>${LABEL[s] || s}</option>`).join("");
+  const contact = [d.contact_name && `${esc(d.contact_name)} (${esc(d.contact_role || "contact")})`,
+    d.contact_email && `<a href="mailto:${esc(d.contact_email)}">${esc(d.contact_email)}</a>`,
+    d.contact_phone && `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>`].filter(Boolean).join(" · ");
+  return `<div class="deal" data-addr="${esc(d.address)}">
+    <div class="row1">
+      <div>
+        <div class="addr">${d.listing_url ? `<a href="${esc(d.listing_url)}" target="_blank" rel="noopener">${esc(d.address)}</a>` : esc(d.address)}</div>
+        <div class="meta">${money(num(d.price))} · ${tidy(d.beds)} bd / ${tidy(d.baths)} ba · ${d.sqft || "?"} sqft
+          · $${d.price_per_sqft || "?"}/sf (area $${d.area_median_ppsf || "?"}) · ${d.days_on_market} days
+          ${num(d.price_cut_pct) ? ` · cut ${d.price_cut_pct}%` : ""}</div>
+        <div style="margin-top:4px">${hot}${flags}</div>
+      </div>
+      <div class="score" title="Deal score">${d.score}</div>
+    </div>
+    ${contact ? `<div class="contact">${contact}</div>` : ""}
+    <div class="fields">
+      <div><label>Stage</label><select data-f="status">${opts}</select></div>
+      <div><label>Your offer</label><input data-f="offer" inputmode="numeric" value="${esc(d.offer)}" placeholder="$"></div>
+      <div><label>Assignment fee</label><input data-f="assignment_fee" inputmode="numeric" value="${esc(d.assignment_fee)}" placeholder="$"></div>
+      <div><label>Remind me on</label><input data-f="follow_up" type="date" value="${esc(d.follow_up)}"></div>
+      <div><label>After-repair value (ARV)</label><input data-f="arv" inputmode="numeric" value="${esc(d.arv)}" placeholder="$"></div>
+      <div><label>Repairs</label><input data-f="repairs" inputmode="numeric" value="${esc(d.repairs)}" placeholder="$"></div>
+      <div class="calc" data-calc>${calcText(d)}</div>
+      <div class="notes" style="grid-column:1/-1"><label>Notes</label><input data-f="notes" value="${esc(d.notes)}" placeholder="Called, left VM…"></div>
+    </div>
+    ${d.status === "under_contract" ? `<div class="dealbtns">${d.buyer_matches
+      ? `<button class="btn" data-blast>Email ${d.buyer_matches} matching buyer${d.buyer_matches === 1 ? "" : "s"}</button>`
+      : "No cash buyers match this one yet. Add some below."}</div>` : ""}
+  </div>`;
+}
+
+function dealsList() {
+  const q = $("q").value.trim().toLowerCase();
+  const rows = state.deals.filter(d => (tab === "all" || d.status === tab) &&
+    (!q || [d.address, d.zip, d.contact_name, d.contact_email, d.notes].join(" ").toLowerCase().includes(q)));
+  $("deals").innerHTML = rows.length ? rows.map(dealRow).join("") :
+    `<div class="empty">${state.deals.length ? "Nothing here." : "No properties yet. Run <code>fetch</code> or <code>import</code>, then <code>score</code>."}</div>`;
+}
+
+function followups() {
+  const rows = state.deals.filter(d => d.follow_up && !["closed", "dead", "skip"].includes(d.status))
+    .sort((a, b) => a.follow_up.localeCompare(b.follow_up)).slice(0, 12);
+  $("followups").innerHTML = rows.length ? rows.map(d =>
+    `<li><div class="${d.follow_up < today() ? "overdue" : ""}">${d.follow_up === today() ? "Today" : d.follow_up}</div>
+     <div>${esc(d.address.split(",")[0])} · ${LABEL[d.status] || d.status}</div>
+     ${d.notes ? `<div class="when">${esc(d.notes)}</div>` : ""}</li>`).join("") :
+    `<li class="empty">Set a "Remind me on" date on a deal (call back, check on the seller) and it shows up here.</li>`;
+}
+
+function funnel() {
+  const order = ["approved", "emailed", "replied", "negotiating", "under_contract", "closed"];
+  const counts = order.map(s => state.deals.filter(d => order.indexOf(d.status) >= order.indexOf(s)).length);
+  const max = Math.max(1, ...counts);
+  $("funnel").innerHTML = order.map((s, i) =>
+    `<div class="bar"><span>${LABEL[s]}</span><div class="track"><div class="fill" style="width:${counts[i] / max * 100}%"></div></div><span class="num">${counts[i]}</span></div>`).join("");
+}
+
+function sentList() {
+  const rows = state.sent.slice(-10).reverse();
+  $("sent").innerHTML = rows.length ? rows.map(s =>
+    `<li><div>${esc(s.address.split(",")[0])}</div><div class="when">${esc(s.email)} · ${esc(s.sent_at.replace("T", " ").slice(0, 16))}</div></li>`).join("") :
+    `<li class="empty">No emails sent yet.</li>`;
+}
+
+function banner() {
+  const s = state.setup || {}, msgs = [];
+  if (!s.config) msgs.push("You're not set up yet. In a terminal, run <code>python3 dealfinder.py setup</code> (or double-click the start file again).");
+  else {
+    if (!s.rentcast) msgs.push("Add your RentCast key to use <b>Find houses</b>: run <code>python3 dealfinder.py setup</code>. Uploading a CSV works without it.");
+    if (!s.email) msgs.push("Add your Gmail app password to send emails: run <code>python3 dealfinder.py setup</code>.");
+  }
+  $("banner").innerHTML = msgs.map(m => `<div class="banner">${m}</div>`).join("");
+}
+
+function jobBox() {
+  const j = state.job || {};
+  if (!j.name) { $("job").innerHTML = ""; return; }
+  // the drafts show up in their own box, so only keep the summary line here
+  const out = j.ok && j.name === "Writing emails" ? (j.output || "").trim().split("\n").pop() : (j.output || "").trim();
+  const title = j.running ? `${j.name}… (you can keep working)` : `${j.name}: ${j.ok ? "done" : "something went wrong"}`;
+  $("job").innerHTML = `<div class="job"><div class="head"><span>${esc(title)}</span>
+    ${j.running ? "" : `<button class="tab" id="b-hide">Hide</button>`}</div>
+    ${out ? `<pre>${esc(out)}</pre>` : ""}</div>`;
+  const h = $("b-hide"); if (h) h.onclick = () => { state.job = {}; $("job").innerHTML = ""; };
+  ["b-fetch", "b-import", "b-draft", "b-send", "b-followup"].forEach(id => $(id).disabled = !!j.running);
+}
+
+function draftsBox() {
+  const n = state.deals.filter(d => d.status === "approved").length;
+  $("approved-n").textContent = `${n} ${n === 1 ? "house is" : "houses are"} approved.`;
+  const ds = state.drafts || [];
+  $("drafts-card").style.display = ds.length ? "" : "none";
+  $("b-send").textContent = `Send ${ds.length} email${ds.length === 1 ? "" : "s"}`;
+  const open = document.activeElement && document.activeElement.closest && document.activeElement.closest(".draft");
+  if (open) return; // don't wipe what you're typing
+  $("drafts").innerHTML = ds.map(d => `<div class="draft" data-file="${esc(d.file)}">
+    <div class="to"><span class="kind">${esc({ intro: "First email", buyer: "To buyer" }[d.kind || "intro"] || "Follow-up")}</span>To ${esc(d.to)} · ${esc(d.address)}</div>
+    <input data-k="subject" value="${esc(d.subject)}">
+    <textarea data-k="body">${esc(d.body)}</textarea>
+    <button class="btn danger" data-del>Don't send this one</button>
+  </div>`).join("");
+}
+
+async function run(action, extra) {
+  const r = await post("/api/run", { action, ...extra });
+  const j = await r.json();
+  if (!r.ok) { toast(j.error || "Couldn't start"); return; }
+  state.job = j; jobBox(); poll();
+}
+
+function poll() {
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    await load();
+    if (!state.job.running) clearInterval(polling);
+  }, 2000);
+}
+
+function followupCount() {
+  const days = num(state.settings.followup_after_days) || 5, now = Date.now();
+  return state.deals.filter(d => {
+    if (d.status !== "emailed") return false;
+    const mine = state.sent.filter(s => s.address.toLowerCase() === d.address.toLowerCase() && s.kind !== "buyer");
+    if (!mine.length) return false;
+    const last = Math.max(...mine.map(s => Date.parse(s.sent_at)));
+    return (now - last) / 864e5 >= days && mine.filter(s => s.kind.startsWith("followup")).length < 2;
+  }).length;
+}
+
+function buyersBox() {
+  const bs = state.buyers || [];
+  $("buyers-n").textContent = bs.length ? `· ${bs.length}` : "";
+  $("buyers").innerHTML = bs.length ? bs.map(b => `<div class="buyer" data-email="${esc(b.email)}" data-name="${esc(b.name)}">
+    <div><b>${esc(b.name || b.email)}</b>
+      <div class="meta">${b.email ? esc(b.email) : "<i>no email yet</i>"}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>` : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
+    <button class="btn danger" data-rm style="margin:0">Remove</button></div>`).join("") :
+    `<div class="empty">No cash buyers yet. Every wholesale deal needs one, so start this list before you sign a contract.
+      Good places to find them: recent cash sales in county records, local investor meetups, and "we buy houses" signs.
+      <div><button class="btn ghost" id="b-starter">Load starter list (NJ cash-buyer companies)</button></div></div>`;
+  const st = $("b-starter");
+  if (st) st.onclick = async () => { const r = await post("/api/buyers/starter", {}); const j = await r.json(); await load(); toast(`Added ${j.added} buyers`); };
+}
+
+function render(keepList) {
+  const n = state.deals.length;
+  $("sub").textContent = `${n} ${n === 1 ? "property" : "properties"} · updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  banner(); kpis(); jobBox(); draftsBox(); buyersBox();
+  const fc = followupCount();
+  $("followup-n").textContent = fc ? `${fc} deal${fc === 1 ? "" : "s"} due for a follow-up.` : `Follow-ups go out ${num(state.settings.followup_after_days) || 5}+ days after no reply (max 2).`; tabs(); followups(); funnel(); sentList();
+  const typing = document.activeElement && $("deals").contains(document.activeElement);
+  if (!keepList && !typing) dealsList();
+}
+
+$("tabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-tab]"); if (!b) return;
+  tab = b.dataset.tab; try { localStorage.setItem("tab", tab); } catch (err) {}
+  tabs(); dealsList();
+});
+$("q").addEventListener("input", dealsList);
+$("refresh").addEventListener("click", () => load().then(() => toast("Refreshed")));
+$("deals").addEventListener("change", e => {
+  const f = e.target.dataset.f; if (!f) return;
+  const addr = e.target.closest(".deal").dataset.addr;
+  save(addr, { [f]: e.target.value }).then(() => { if (f === "status") dealsList(); });
+});
+
+$("b-fetch").onclick = () => run("fetch", { city: $("f-city").value.trim(), state: $("f-state").value.trim().toUpperCase(),
+  zip: $("f-zip").value.trim(), max_price: $("f-max").value.replace(/[$,]/g, "") });
+$("b-import").onclick = async () => {
+  const f = $("f-csv").files[0]; if (!f) { toast("Pick a CSV file first"); return; }
+  run("import", { csv: await f.text(), role: $("f-role").value });
+};
+$("b-draft").onclick = () => run("draft");
+$("b-followup").onclick = () => run("followup");
+$("deals").addEventListener("click", e => {
+  if (!e.target.hasAttribute("data-blast")) return;
+  run("blast", { address: e.target.closest(".deal").dataset.addr });
+});
+$("b-buyer").onclick = async () => {
+  const v = id => $(id).value.trim();
+  const r = await post("/api/buyer", { name: v("by-name"), email: v("by-email"), phone: v("by-phone"),
+    zips: v("by-zips"), max_price: v("by-max").replace(/[$,]/g, ""), notes: v("by-notes") });
+  if (!r.ok) { toast((await r.json()).error || "Couldn't save"); return; }
+  ["by-name", "by-email", "by-phone", "by-zips", "by-max", "by-notes"].forEach(id => $(id).value = "");
+  await load(); toast("Buyer added");
+};
+$("buyers").addEventListener("click", async e => {
+  if (!e.target.hasAttribute("data-rm")) return;
+  const el = e.target.closest(".buyer"), email = el.dataset.email, name = el.dataset.name;
+  if (!confirm(`Remove ${name || email} from your buyers?`)) return;
+  await post("/api/buyer", { email, name, delete: true }); await load(); toast("Removed");
+});
+$("b-send").onclick = () => {
+  const n = (state.drafts || []).length;
+  if (confirm(`Send ${n} email${n === 1 ? "" : "s"} now? They go out 1–3 minutes apart (max 20 per run).`)) run("send");
+};
+$("drafts").addEventListener("change", async e => {
+  const k = e.target.dataset.k; if (!k) return;
+  const file = e.target.closest(".draft").dataset.file;
+  const r = await post("/api/draft", { file, [k]: e.target.value });
+  toast(r.ok ? "Email saved" : "Couldn't save");
+});
+$("drafts").addEventListener("click", async e => {
+  if (!e.target.hasAttribute("data-del")) return;
+  const file = e.target.closest(".draft").dataset.file;
+  await post("/api/draft", { file, delete: true });
+  document.activeElement.blur(); await load(); toast("Removed");
+});
+
+load().then(() => { if (state.job && state.job.running) poll(); }).catch(() => { $("sub").textContent = "Couldn't reach the tracker. Is `python3 dealfinder.py dashboard` running?"; });
+</script>
+</body>
+</html>
