@@ -949,7 +949,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                             argparse.Namespace(csv=path, town=body.get("town"), county=body.get("county")))
             elif action == "records_pull":
                 run_job("Downloading county records", records.cmd_pull,
-                        argparse.Namespace(county=body.get("county") or "UNION", towns=body.get("towns") or None))
+                        argparse.Namespace(source=body.get("source") or "nj", county=body.get("county") or "UNION",
+                                           towns=body.get("towns") or None, url=None))
             elif action == "followup":
                 run_job("Writing follow-ups", cmd_followup, argparse.Namespace(days=None))
             elif action == "blast":
@@ -1270,8 +1271,16 @@ def main():
     ri.add_argument("--county")
     ri.set_defaults(func=records.cmd_import)
     rp = rsub.add_parser("pull", help="download a county's tax list from NJ's public parcel service")
-    rp.add_argument("--county", default="UNION")
-    rp.add_argument("--towns", help="optional, comma separated, e.g. Elizabeth,Linden,Plainfield")
+    rp.add_argument("--source", default="nj", help="nj (any NJ county), " + ", ".join(records.SOURCES))
+    rp.add_argument("--county", default="UNION", help="NJ county name when --source nj")
+    rp.add_argument("--towns", help="NJ only: comma separated, e.g. Elizabeth,Linden,Plainfield")
+    rp.add_argument("--url", help="any county's ArcGIS parcel layer URL (…/FeatureServer/0)")
+    rp.add_argument("--map", help="field names for --url, e.g. address=SITEADDR,owner=OWNNAME,mail_street=MAILADDR")
+    rp.add_argument("--where", help="filter for --url, e.g. CLASS='R'")
+    rp.add_argument("--order", help="ID field for --url (default OBJECTID)")
+    rp.add_argument("--state", help="two-letter state for --url, e.g. OH")
+    rp.add_argument("--county-name", help="county name for --url")
+    rp.add_argument("--town-name", help="city name for --url when the layer has none")
     rp.set_defaults(func=records.cmd_pull)
     rl = rsub.add_parser("leads", help="rank owners most likely to sell")
     rl.add_argument("--top", type=int)
