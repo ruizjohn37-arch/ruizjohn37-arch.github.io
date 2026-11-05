@@ -241,6 +241,20 @@ Each station shows how many deals are in it, with a status light:
 Click a station to jump to its deals. Below it, the **Deal board** lets you drag a card to the
 next stage, and the **Factory log** shows everything that happened, newest first.
 
+## Open it on your phone
+
+The app runs on your computer; your phone opens it over your home Wi-Fi.
+
+1. On the computer, start it with `python3 dealfinder.py dashboard --phone`
+   (Windows: `py dealfinder.py dashboard --phone`).
+2. The black window prints an address like `http://192.168.1.23:8765/` and a 6-digit PIN.
+3. On your phone (same Wi-Fi), type that address into Safari or Chrome and enter the PIN.
+   Tip: use "Add to Home Screen" so it opens like an app.
+
+The computer must stay on with the window open. You get a new PIN every start. Only use this on
+your own home network, not coffee-shop or hotel Wi-Fi. If the phone can't connect, allow Python
+through the computer's firewall when it asks.
+
 ## Texting (Google Voice or your phone)
 Every agent, owner and buyer with a phone number gets a **Text** button. Clicking it opens your
 texting app (your phone, or Google Voice if that's your default) with a short message already

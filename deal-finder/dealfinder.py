@@ -30,6 +30,7 @@ import records  # noqa: E402  (reads DEALFINDER_DATA)
 import csv
 import contextlib
 import getpass
+import hmac
 import http.server
 import io
 import threading
@@ -731,16 +732,40 @@ def run_job(name, func, args):
     threading.Thread(target=work, daemon=True).start()
 
 
+PHONE_PIN = None  # set by `dashboard --phone`; then every request needs the PIN
+PIN_PAGE = b"""<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Deal Tracker</title><body style="font-family:system-ui;max-width:320px;margin:15vh auto;padding:0 16px">
+<h2>Deal Tracker</h2><p>Enter the PIN shown on your computer.</p>
+<form method=get action="/"><input name=pin inputmode=numeric autocomplete=off autofocus
+style="font-size:24px;width:100%;padding:8px;box-sizing:border-box"><button
+style="font-size:18px;margin-top:12px;width:100%;padding:10px">Open</button></form>"""
+
+
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", extra=()):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for k, v in extra:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
+    def _pin_ok(self):
+        if not PHONE_PIN:
+            return True
+        cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        return hmac.compare_digest(cookies.get("dt_pin", ""), PHONE_PIN)
+
     def do_GET(self):
+        if PHONE_PIN and not self._pin_ok():
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if hmac.compare_digest((q.get("pin") or [""])[0].strip(), PHONE_PIN):
+                return self._send(303, b"", "text/plain", [
+                    ("Location", "/"), ("Set-Cookie", f"dt_pin={PHONE_PIN}; HttpOnly; SameSite=Strict; Path=/")])
+            time.sleep(1)  # slow down PIN guessing
+            return self._send(401, PIN_PAGE, "text/html; charset=utf-8")
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "dashboard.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
@@ -757,7 +782,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         # only accept requests from this page, not from other websites
-        if self.headers.get("X-Dashboard") != "1":
+        if self.headers.get("X-Dashboard") != "1" or not self._pin_ok():
             return self._send(403, {"error": "forbidden"})
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
@@ -904,10 +929,33 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def lan_ip():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))  # picks the Wi-Fi address; sends nothing
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
 def cmd_dashboard(args):
+    global PHONE_PIN
     url = f"http://127.0.0.1:{args.port}/"
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), DashboardHandler)
+    host = "127.0.0.1"
+    if args.phone:
+        import secrets
+        PHONE_PIN = f"{secrets.randbelow(10**6):06d}"
+        host = "0.0.0.0"
+    server = http.server.ThreadingHTTPServer((host, args.port), DashboardHandler)
     print(f"Dashboard running at {url}  (Ctrl+C to stop)")
+    if args.phone:
+        ip = lan_ip() or "<this computer's Wi-Fi address>"
+        print(f"\n  On your phone (same Wi-Fi), open:  http://{ip}:{args.port}/")
+        print(f"  PIN: {PHONE_PIN}   (new PIN each time you start; don't use this on public Wi-Fi)\n")
+        url += f"?pin={PHONE_PIN}"
     if not args.no_browser:
         webbrowser.open(url)
     try:
@@ -1139,6 +1187,7 @@ def main():
     db = sub.add_parser("dashboard", help="open the tracking dashboard in your browser")
     db.add_argument("--port", type=int, default=8765)
     db.add_argument("--no-browser", action="store_true")
+    db.add_argument("--phone", action="store_true", help="let your phone open it over your home Wi-Fi (asks for a PIN)")
     db.set_defaults(func=cmd_dashboard)
 
     args = p.parse_args()
