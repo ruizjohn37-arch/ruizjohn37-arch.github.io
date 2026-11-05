@@ -180,21 +180,51 @@ def contract_price(deal):
     return num(deal.get("offer")) or num(deal.get("price")) or 0
 
 
+def in_buy_box(deal, b):
+    """Does this house fit a buyer's area and property type? (blank means 'any')"""
+    zips = [z.strip() for z in (b.get("zips") or "").replace(";", ",").split(",") if z.strip()]
+    types = (b.get("property_types") or "").lower()
+    if zips and str(deal.get("zip", ""))[:5] not in zips:
+        return False
+    return not (types and deal.get("property_type") and deal["property_type"].lower() not in types)
+
+
 def matching_buyers(deal, buyers):
     """Buyers whose ZIPs and max price fit this deal (blank means 'any')."""
     out = []
     for b in buyers:
-        zips = [z.strip() for z in (b.get("zips") or "").replace(";", ",").split(",") if z.strip()]
-        types = (b.get("property_types") or "").lower()
-        if zips and str(deal.get("zip", ""))[:5] not in zips:
+        if not in_buy_box(deal, b):
             continue
         if num(b.get("max_price")) and contract_price(deal) + (num(deal.get("assignment_fee")) or 0) > num(b["max_price"]):
-            continue
-        if types and deal.get("property_type") and deal["property_type"].lower() not in types:
             continue
         if b.get("email"):
             out.append(b)
     return out
+
+
+def suggested_offer(deal, buyers, cfg):
+    """What to offer on a listed house and how it was worked out, rounded down to $1,000.
+    Uses, in order: your own number, your ARV and repairs, the best matching buyer's max
+    price, or a percent of the list price."""
+    if num(deal.get("offer")):
+        return int(num(deal["offer"])), "the offer saved on this house"
+    fee = num(deal.get("assignment_fee")) or num(cfg.get("target_fee")) or 10000
+    price = num(deal.get("price")) or 0
+    if num(deal.get("arv")):
+        pct = cfg.get("mao_percent") or 0.70
+        o = num(deal["arv"]) * pct - (num(deal.get("repairs")) or 0) - fee
+        why = f"{round(pct * 100)}% of ARV, minus repairs and your ${fee:,.0f} fee"
+    else:
+        tops = [num(b.get("max_price")) for b in buyers if in_buy_box(deal, b) and num(b.get("max_price"))]
+        if tops:
+            o, why = max(tops) - fee, f"top matching buyer pays up to ${max(tops):,.0f}, minus your ${fee:,.0f} fee"
+        else:
+            pct = cfg.get("offer_percent_of_list") or 0.75
+            o, why = price * pct, f"{round(pct * 100)}% of list price (add ARV or buyers for a sharper number)"
+    if price:
+        o = min(o, price * 0.97)  # an offer at asking leaves no room for a fee
+    o = int(o // 1000 * 1000)
+    return (o, why) if o > 0 else (None, why)
 
 
 def write_draft(kind, to, address, subject, body, suffix=""):
@@ -490,7 +520,7 @@ def cmd_draft(args):
         if not email:
             print(f"  skip (no email): {d['address']}")
             continue
-        if email in dnc or (email, d["address"].lower(), "intro") in sent:
+        if email in dnc or any((email, d["address"].lower(), k) in sent for k in ("intro", "offer")):
             print(f"  skip (do-not-contact or already emailed): {d['address']}")
             continue
         subject, body = build_email(d, cfg, rng)
@@ -499,6 +529,83 @@ def cmd_draft(args):
         print(f"\n===== {d['address']}  ->  {email}\nSubject: {subject}\n\n{body}")
     print(f"\n{made} email(s) written. Review and edit them, then send "
           "(Send button in the dashboard, or `send` then `send --confirm`).")
+
+
+# ---------------------------------------------------------------- offers to listing agents
+OFFER_SUBJECTS = ["Cash offer on {street}", "Offer for {street}", "{street}: cash offer, as-is"]
+OFFER_OPENERS = [
+    "I'd like to make a cash offer on your listing at {street}.",
+    "I'm interested in {street} and want to put a cash offer in front of your seller.",
+    "Reaching out with a cash offer on {street}.",
+]
+
+
+def build_offer_email(deal, offer, cfg, rng):
+    street = deal["address"].split(",")[0].strip()
+    first = (deal["contact_name"] or "there").split()[0].title()
+    earnest = num(cfg.get("offer_earnest_money")) or 1000
+    terms = [f"Price: ${offer:,.0f}, cash",
+             "As-is: no repairs or credits asked",
+             f"Close in {cfg.get('offer_close_days', 30)} days or sooner, at a title company of the seller's choice",
+             f"{cfg.get('offer_inspection_days', 10)}-day inspection period",
+             f"Earnest money deposit: ${earnest:,.0f}"]
+    # Be upfront about assigning: it keeps you honest with the agent and seller.
+    body = (f"Hi {first},\n\n" + rng.choice(OFFER_OPENERS).format(street=street) + "\n\n"
+            + "\n".join("  - " + t for t in terms) +
+            "\n\nTo be upfront: I'm a real estate investor, and I may assign this contract to another cash "
+            "buyer before closing. I'll put that in writing in the offer, and the seller's price and terms "
+            "stay the same either way.\n\n"
+            "If the number works or is close, I can send it over on your offer form today. If it doesn't, "
+            "is there a price the seller would take?\n\n"
+            + rng.choice(CLOSERS).format(you=cfg["your_name"]) + "\n"
+            + "\n".join(filter(None, [cfg.get("your_company"), cfg.get("your_phone"), cfg.get("your_email")])))
+    sender = cfg.get("your_company") or cfg["your_name"]
+    body += (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
+             "If you'd rather not hear from me, just reply \"remove\" and I won't contact you again.")
+    return rng.choice(OFFER_SUBJECTS).format(street=street), body
+
+
+def cmd_offers(args):
+    """Write cash-offer emails to listing agents for the best listed houses (you review before sending)."""
+    cfg = load_config()
+    deals, buyers = read_deals(), read_buyers()
+    dnc, sent = do_not_contact(), already_sent()
+    rng, made, now = random.Random(), 0, datetime.now().isoformat(timespec="seconds")
+    for d in deals:  # already ranked best first
+        if made >= (args.top or 25):
+            break
+        email = (d.get("contact_email") or "").strip().lower()
+        if d["status"] not in ("pending", "approved") or "owner" in (d.get("contact_role") or "").lower():
+            continue
+        if not email or email in dnc or any((email, d["address"].lower(), k) in sent for k in ("offer", "intro")):
+            continue
+        slug = "".join(c if c.isalnum() else "_" for c in d["address"])[:60]
+        if os.path.exists(os.path.join(OUTBOX, slug + ".json")):
+            continue  # an offer is already waiting for you to review
+        offer, why = suggested_offer(d, buyers, cfg)
+        if not offer:
+            continue
+        subject, body = build_offer_email(d, offer, cfg, rng)
+        write_draft("offer", email, d["address"], subject, body)
+        if not num(d.get("offer")):
+            d["offer"] = offer
+        d["status"], d["updated"] = "approved", now
+        made += 1
+        price = num(d.get("price")) or 0
+        pct = f" ({offer / price:.0%} of ${price:,.0f} asking)" if price else ""
+        print(f"  ${offer:,.0f}{pct} -> {email}  {d['address']}\n      why: {why}")
+    write_deals(deals)
+    print(f"\n{made} offer email(s) written. Read each one, then press Send. "
+          "Offers that get a 'yes' or a counter: move to Negotiating and sign a real contract "
+          "with an assignment clause before you market it to buyers.")
+
+
+FOLLOWUPS_OFFER = [
+    "Hi {first},\n\nFollowing up on my cash offer for {street}. Did the seller have a chance to look at it? "
+    "If the price is the issue, I'm open to hearing a counter.",
+    "Hi {first},\n\nChecking back on {street}. My cash offer still stands if the seller wants a quick, "
+    "as-is close. Thanks either way!",
+]
 
 
 FOLLOWUPS = [
@@ -523,7 +630,7 @@ def cmd_followup(args):
             continue
         email = d["contact_email"].strip().lower()
         mine = [r for r in sent if r["address"].lower() == d["address"].lower() and r["email"].lower() == email
-                and (r["kind"] == "intro" or r["kind"].startswith("followup"))]
+                and (r["kind"] in ("intro", "offer") or r["kind"].startswith("followup"))]
         if not mine or email in dnc:
             continue
         done = len([r for r in mine if r["kind"].startswith("followup")])
@@ -533,7 +640,8 @@ def cmd_followup(args):
         street = d["address"].split(",")[0].strip()
         first = (d["contact_name"] or "there").split()[0].title()
         kind = f"followup{done + 1}"
-        body = FOLLOWUPS[min(done, len(FOLLOWUPS) - 1)].format(first=first, street=street)
+        texts = FOLLOWUPS_OFFER if any(r["kind"] == "offer" for r in mine) else FOLLOWUPS
+        body = texts[min(done, len(texts) - 1)].format(first=first, street=street)
         body += f"\n\n{cfg['your_name']}\n" + "\n".join(filter(None, [cfg.get("your_phone"), cfg.get("your_email")]))
         sender = cfg.get("your_company") or cfg["your_name"]
         body += (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
@@ -634,7 +742,7 @@ def cmd_send(args):
             time.sleep(random.uniform(cfg["min_seconds_between_emails"], cfg["max_seconds_between_emails"]))
     server.quit()
     # move the deals you just emailed to the "emailed" stage
-    sent_addrs = {m["address"].lower() for _, m in todo if m["kind"] == "intro"}
+    sent_addrs = {m["address"].lower() for _, m in todo if m["kind"] in ("intro", "offer")}
     deals = read_deals() if os.path.exists(DEALS) else []
     for d in deals:
         if d["address"].lower() in sent_addrs and d["status"] == "approved":
@@ -693,6 +801,8 @@ def dashboard_state():
     buyers = read_buyers()
     for d in deals:
         d["buyer_matches"] = len(matching_buyers(d, buyers))
+        if "owner" not in (d.get("contact_role") or "").lower():
+            d["suggested_offer"], d["offer_why"] = suggested_offer(d, buyers, cfg)
     settings = {"mao_percent": cfg.get("mao_percent", 0.70), "target_fee": cfg.get("target_fee", 10000),
                 "followup_after_days": cfg.get("followup_after_days", 5)}
     in_pipeline = {d["address"].lower() for d in deals}
@@ -825,6 +935,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         argparse.Namespace(csv=path, role=body.get("role") or "listing agent"))
             elif action == "draft":
                 run_job("Writing emails", cmd_draft, argparse.Namespace())
+            elif action == "offers":
+                run_job("Writing offers to agents", cmd_offers, argparse.Namespace(top=int(body.get("top") or 25)))
             elif action == "records_import":
                 path = os.path.join(DATA, "records_upload.csv")
                 os.makedirs(DATA, exist_ok=True)
@@ -1138,6 +1250,9 @@ def main():
     s.set_defaults(func=cmd_score)
 
     sub.add_parser("draft", help="write emails for approved deals").set_defaults(func=cmd_draft)
+    of = sub.add_parser("offers", help="write cash-offer emails to listing agents for the top listed houses")
+    of.add_argument("--top", type=int, default=25, help="how many offers to write (default 25)")
+    of.set_defaults(func=cmd_offers)
 
     fu = sub.add_parser("followup", help="write follow-ups for emailed deals with no reply")
     fu.add_argument("--days", type=int, help="wait this many days after the last email (default 5)")

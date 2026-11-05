@@ -208,6 +208,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
         <div id="approved-n" class="hint" style="margin-top:0"></div>
         <button class="btn" id="b-draft">Write emails</button>
         <div class="hint">Set a house's stage to <b>Approved</b> below first. You'll see every email before it goes out.</div>
+        <button class="btn" id="b-offers">Send offers to agents</button>
+        <div class="hint">Writes a cash offer to the listing agent on your 25 best listed houses, priced from your
+          ARV, your buyers' max prices, or a percent of asking. You read every one before it goes.</div>
         <button class="btn ghost" id="b-followup">Write follow-ups</button>
         <div class="hint" id="followup-n"></div>
       </div>
@@ -351,7 +354,8 @@ function tabs() {
 function calcText(d) {
   const arv = num(d.arv), rep = num(d.repairs), pct = num(state.settings.mao_percent) || 0.7;
   const fee = num(d.assignment_fee) || num(state.settings.target_fee) || 10000;
-  if (!arv) return `Enter the ARV and repairs to get your max offer (${Math.round(pct * 100)}% rule).`;
+  const sug = d.suggested_offer ? `Suggested offer to agent: <b>${money(d.suggested_offer)}</b> <span class="hint">(${esc(d.offer_why)})</span>` : "";
+  if (!arv) return sug || `Enter the ARV and repairs to get your max offer (${Math.round(pct * 100)}% rule).`;
   const mao = arv * pct - rep, offer = mao - fee, ask = num(d.price);
   const gap = ask ? ` · asking ${money(ask)}${ask > offer ? ` <span class="bad">(${money(ask - offer)} over)</span>` : " ✓"}` : "";
   return `Buyer's max: <b>${money(mao)}</b> · Offer seller up to <b>${money(offer)}</b> to keep a ${money(fee)} fee${gap}`;
@@ -424,7 +428,7 @@ function board() {
 
 function factoryLog() {
   const ev = [];
-  state.sent.forEach(s => ev.push([s.sent_at, `${{ intro: "✉️ Emailed", buyer: "👥 Sent deal to buyer" }[s.kind] || "🔁 Followed up"} · ${s.address.split(",")[0]}`, s.email]));
+  state.sent.forEach(s => ev.push([s.sent_at, `${{ intro: "✉️ Emailed", offer: "💵 Offer sent", buyer: "👥 Sent deal to buyer" }[s.kind] || "🔁 Followed up"} · ${s.address.split(",")[0]}`, s.email]));
   state.deals.filter(d => d.updated).forEach(d => ev.push([d.updated, `${STATION_ICON[d.status] || "•"} ${d.address.split(",")[0]} → ${LABEL[d.status] || d.status}`, d.notes || ""]));
   ev.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
   $("log").innerHTML = ev.length ? ev.slice(0, 40).map(([t, what, sub]) =>
@@ -529,7 +533,7 @@ function jobBox() {
     ${j.running ? "" : `<button class="tab" id="b-hide">Hide</button>`}</div>
     ${out ? `<pre>${esc(out)}</pre>` : ""}</div>`;
   const h = $("b-hide"); if (h) h.onclick = () => { state.job = {}; $("job").innerHTML = ""; };
-  ["b-fetch", "b-import", "b-draft", "b-send", "b-followup", "b-rec", "b-tag"].forEach(id => $(id).disabled = !!j.running);
+  ["b-fetch", "b-import", "b-draft", "b-offers", "b-send", "b-followup", "b-rec", "b-tag"].forEach(id => $(id).disabled = !!j.running);
 }
 
 function draftsBox() {
@@ -541,7 +545,7 @@ function draftsBox() {
   const open = document.activeElement && document.activeElement.closest && document.activeElement.closest(".draft");
   if (open) return; // don't wipe what you're typing
   $("drafts").innerHTML = ds.map(d => `<div class="draft" data-file="${esc(d.file)}">
-    <div class="to"><span class="kind">${esc({ intro: "First email", buyer: "To buyer" }[d.kind || "intro"] || "Follow-up")}</span>To ${esc(d.to)} · ${esc(d.address)}</div>
+    <div class="to"><span class="kind">${esc({ intro: "First email", offer: "Cash offer", buyer: "To buyer" }[d.kind || "intro"] || "Follow-up")}</span>To ${esc(d.to)} · ${esc(d.address)}</div>
     <input data-k="subject" value="${esc(d.subject)}">
     <textarea data-k="body">${esc(d.body)}</textarea>
     <button class="btn danger" data-del>Don't send this one</button>
@@ -641,6 +645,7 @@ $("b-import").onclick = async () => {
   run("import", { csv: await f.text(), role: $("f-role").value });
 };
 $("b-draft").onclick = () => run("draft");
+$("b-offers").onclick = () => run("offers", { top: 25 });
 $("b-followup").onclick = () => run("followup");
 $("b-rec").onclick = async () => {
   const f = $("rec-file").files[0]; if (!f) { toast("Pick a CSV file first"); return; }

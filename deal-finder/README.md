@@ -136,6 +136,32 @@ Several states (for example Illinois, Oklahoma, Pennsylvania, Ohio, and South Ca
 require a license, or specific disclosures, to market or assign contracts as a wholesaler.
 Check yours before you start sending.
 
+## Offers to listing agents (high-volume offer method)
+
+This is the "send lots of offers on listed houses" method. You make a fair cash offer to the
+listing agent on many houses at once, and resell (assign) the few that say yes to a cash buyer.
+
+1. **Get listings.** Open `listings_template.csv` in Excel or Google Sheets and paste in houses from
+   Zillow, Redfin or Realtor.com (address, price, agent name and email; the agent's email is usually
+   on their brokerage page). Older listings with price cuts and "as-is" or "investor" in the remarks
+   are best. Upload it with **...or upload a list** (choose "Contacts are listing agents").
+2. **Press "Send offers to agents".** It writes an offer email for your 25 best-ranked houses. The
+   price comes from, in order:
+   - the offer you typed on the house,
+   - your ARV and repairs (70% rule minus your fee),
+   - the highest max price of a cash buyer whose ZIPs fit the house, minus your fee,
+   - otherwise 75% of asking (`offer_percent_of_list` in config.json).
+
+   Never more than 97% of asking, rounded down to $1,000. Each house shows its suggested offer and why.
+3. **Read every email, then Send.** Each one says you may assign the contract, which keeps you honest
+   with the agent and seller (and in NJ you should). Follow-ups go out after 5 days with no reply.
+4. **A "yes" or a counter:** move it to Negotiating, sign the agent's offer form with an assignment
+   clause ("John Ruiz and/or assigns") and an inspection period, then email your buyers.
+
+Expect most agents to say no or not reply; that's normal for this method. Only offer a price you
+could actually get a buyer to pay, and put down only an earnest money deposit you can afford to lose
+if no buyer closes. Change close days, inspection days and deposit in config.json.
+
 ## Building your cash-buyer list
 In the dashboard, click **Load starter list** under *Cash buyers*. It adds NJ cash-buyer companies
 found in public directories (`starter_buyers.csv`). The numbers come from third-party directories,

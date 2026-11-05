@@ -16,6 +16,10 @@
   "max_followups": 2,
   "mao_percent": 0.7,
   "target_fee": 10000,
+  "offer_percent_of_list": 0.75,
+  "offer_close_days": 30,
+  "offer_inspection_days": 10,
+  "offer_earnest_money": 1000,
   "motivated_keywords": [
     "as-is",
     "as is",
