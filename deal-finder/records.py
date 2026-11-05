@@ -69,9 +69,10 @@ def parse_date(v):
     v = str(v or "").strip()
     if re.fullmatch(r"\d{6}", v):  # NJ MOD-IV deed dates are YYMMDD
         try:
-            return datetime.strptime(v, "%y%m%d").date()
+            d = datetime.strptime(v, "%y%m%d").date()
         except ValueError:
             return None
+        return d.replace(year=d.year - 100) if d > date.today() else d  # "68" means 1968, not 2068
     for cand in (v, v[:10], v.split(" ")[0]):
         for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y%m%d", "%m%d%y", "%m%d%Y"):
             try:
@@ -288,6 +289,8 @@ def score_lead(r, today=None):
     if cls not in RESIDENTIAL:
         return None
     prop_st, mail_st = norm_street(r["address"]), norm_street(r.get("mail_street"))
+    if re.search(r"\b(ASSOC|ASSN|CONDO|HOA|MANAGEMENT CO)\b", mail_st):
+        return None  # tax bill goes to an association or condo manager, not the owner
     absentee = bool(mail_st) and mail_st != prop_st and not mail_st.startswith("PO BOX " + prop_st)
     state = mail_state(r.get("mail_city_state"))
     if absentee:
@@ -299,6 +302,9 @@ def score_lead(r, today=None):
     if ESTATE.search(owner):
         flags.append("estate / inherited")
         score += 30
+    elif re.search(r"\bC/?O\b", str(r.get("mail_street") or "").upper()):
+        flags.append("mail goes c/o someone (estate, attorney or manager)")
+        score += 15
     sd = parse_date(r.get("sale_date"))
     years = (today - sd).days / 365.25 if sd else None
     if years is not None:
@@ -372,12 +378,26 @@ def cmd_leads(args):
         w.writerows(leads)
     print(f"{len(leads)} off-market leads -> {LEADS}\n")
     for i, d in enumerate(leads[:15], 1):
-        print(f"{i:>3} {d['score']:>5}  {d['address']}, {d['town']}  |  {d['owner']}  |  {d['flags']}")
+        print(f"{i:>3} {d['score']:>5}  {d['address']}, {d['town']}  |  {d['owner'] or 'mail: ' + d['mail_street'] + ', ' + d['mail_city_state']}  |  {d['flags']}")
 
 
 # ---------------------------------------------------------------- cash buyers
-def find_buyers(months=24, min_buys=2):
-    if (months, min_buys) == (24, 2):
+def buyer_key(r):
+    """Who bought it: a company name, or (when names are withheld) the owner's mailing address.
+    Only absentee owners count, since people buying a home to live in aren't cash investors."""
+    owner = (r.get("owner") or "").upper().strip()
+    if owner:
+        if not ENTITY.search(owner) or GOVT.search(owner) or BANK.search(owner):
+            return None
+        return "N:" + re.sub(r"[^A-Z0-9 ]", "", owner)
+    mail = norm_street(r.get("mail_street"))
+    if not mail or mail == norm_street(r.get("address")) or re.search(r"\b(ASSOC|ASSN|CONDO|HOA|TAX)", mail):
+        return None
+    return "M:" + mail + "|" + re.sub(r"[^A-Z]", "", str(r.get("mail_city_state", "")).upper())
+
+
+def find_buyers(months=36, min_buys=2):
+    if (months, min_buys) == (36, 2):
         return cached("buyers", lambda: _find_buyers(months, min_buys))
     return _find_buyers(months, min_buys)
 
@@ -387,13 +407,12 @@ def _find_buyers(months=24, min_buys=2):
     cutoff = date.today().toordinal() - int(months * 30.4)
     buys = defaultdict(list)
     for r in load_records():
-        owner = (r.get("owner") or "").upper().strip()
         sd = parse_date(r.get("sale_date"))
-        if not owner or not sd or sd.toordinal() < cutoff or num(r.get("sale_price")) <= 100:
+        if not sd or sd.toordinal() < cutoff or num(r.get("sale_price")) <= 100:
             continue
-        if not ENTITY.search(owner) or GOVT.search(owner) or BANK.search(owner):
-            continue
-        buys[re.sub(r"[^A-Z0-9 ]", "", owner)].append(r)
+        k = buyer_key(r)
+        if k:
+            buys[k].append(r)
     # flips: same property sold twice within 12 months
     by_prop = defaultdict(list)
     for r in load_records():
@@ -404,16 +423,17 @@ def _find_buyers(months=24, min_buys=2):
     for sales in by_prop.values():
         sales.sort(key=lambda x: x[0])
         for (d1, r1), (d2, _) in zip(sales, sales[1:]):
-            if (d2 - d1).days <= 365:
-                flippers[re.sub(r"[^A-Z0-9 ]", "", (r1.get("owner") or "").upper().strip())] += 1
+            if (d2 - d1).days <= 365 and buyer_key(r1):
+                flippers[buyer_key(r1)] += 1
     out = []
     for name, rows in buys.items():
         if len(rows) < min_buys and not flippers.get(name):
             continue
         rows.sort(key=lambda r: r.get("sale_date", ""), reverse=True)
         prices = [num(r["sale_price"]) for r in rows]
+        name = rows[0].get("owner") or f"Owner at {rows[0].get('mail_street', '').title()}"
         out.append({
-            "name": rows[0]["owner"], "purchases": len(rows), "flips": flippers.get(name, 0),
+            "name": name, "purchases": len(rows), "flips": flippers.get(name, 0),
             "towns": ", ".join(sorted({tidy_town(r.get("town")) for r in rows if r.get("town")})),
             "min_price": int(min(prices)), "max_price": int(max(prices)),
             "last_purchase": rows[0].get("sale_date", ""),
@@ -483,7 +503,7 @@ def render_letters(items, kind, cfg):
     pages = []
     for it in items:
         to = "<br>".join(html.escape(x) for x in [
-            it.get("owner") or it.get("name"), it.get("mail_street"),
+            it.get("owner") or it.get("name") or "Current Owner", it.get("mail_street"),
             f"{it.get('mail_city_state', '')} {it.get('mail_zip', '')}".strip()] if x)
         if kind == "seller":
             body = SELLER_LETTER.format(first=html.escape(first_name(it.get("owner"))), you=html.escape(you),
@@ -518,7 +538,7 @@ def write_letters(kind, top, cfg, town=None):
         w = csv.writer(f)
         w.writerow(["name", "address", "city_state", "zip", "property"])
         for it in items:
-            w.writerow([it.get("owner") or it.get("name"), it.get("mail_street"), it.get("mail_city_state"),
+            w.writerow([it.get("owner") or it.get("name") or "Current Owner", it.get("mail_street"), it.get("mail_city_state"),
                         it.get("mail_zip"), it.get("address", it.get("example", ""))])
     return len(items)
 

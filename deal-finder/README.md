@@ -180,7 +180,8 @@ the same thing paid tools like PropStream charge for.
 
 Banks, towns, housing authorities and commercial properties are left out.
 
-**Cash buyers**: companies (LLC, Inc, Holdings…) that bought 2+ houses in the last 2 years, and anyone
+**Cash buyers**: companies (LLC, Inc, Holdings…), or, when the records leave out owner names (the
+state's public parcel service does), the same mailing address that bought 2+ houses in the last 3 years, and anyone
 who flipped a house (bought and resold within 12 months). These are your best buyers.
 
 ### Easiest: pull a whole county automatically

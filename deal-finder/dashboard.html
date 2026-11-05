@@ -579,7 +579,7 @@ function leadsBox() {
   $("leads").innerHTML = !ls.length ? `<div class="empty">No records loaded yet. See "Getting NJ property records" in the README for where to download them.</div>` :
     rows.map(l => `<div class="buyer" data-addr="${esc(l.address)}" data-town="${esc(l.town)}">
       <div><b>${esc(l.address)}, ${esc(l.town)}</b> <span class="score" style="margin-left:6px">${l.score}</span>
-        <div class="meta">${esc(l.owner)} · mail to ${esc(l.mail_street)}, ${esc(l.mail_city_state)} ${esc(l.mail_zip)}
+        <div class="meta">${esc(l.owner || "Owner name withheld")} · mail to ${esc(l.mail_street)}, ${esc(l.mail_city_state)} ${esc(l.mail_zip)}
           ${l.assessed ? ` · assessed ${money(l.assessed)}` : ""}</div>
         <div style="margin-top:4px">${l.flags.split("; ").map(f => `<span class="pill ${/estate|foreclosure|lien/.test(f) ? "hot" : ""}">${esc(f)}</span>`).join("")}</div></div>
       ${l.in_pipeline ? `<span class="hint">In pipeline</span>` : `<button class="btn ghost" data-addlead style="margin:0;align-self:center">Add to pipeline</button>`}

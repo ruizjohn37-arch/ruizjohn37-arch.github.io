@@ -863,7 +863,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "zip": str(lead.get("mail_zip", ""))[:5] if lead.get("mail_street", "").upper() == lead["address"].upper() else "",
                     "price": "", "beds": "", "baths": "", "sqft": "", "days_on_market": "",
                     "property_type": "Off-market", "motivation_flags": lead["flags"],
-                    "contact_name": lead["owner"], "contact_role": "owner",
+                    "contact_name": lead["owner"] or "Current Owner", "contact_role": "owner",
                     "notes": f"Mail to: {lead['mail_street']}, {lead['mail_city_state']} {lead['mail_zip']}",
                     "updated": datetime.now().isoformat(timespec="seconds"),
                 })
@@ -1114,7 +1114,7 @@ def main():
     rl.add_argument("--town")
     rl.set_defaults(func=records.cmd_leads)
     rb = rsub.add_parser("buyers", help="find companies that keep buying (cash buyers)")
-    rb.add_argument("--months", type=int, default=24)
+    rb.add_argument("--months", type=int, default=36)
     rb.add_argument("--min-buys", type=int, default=2)
     rb.set_defaults(func=records.cmd_buyers)
     rf = rsub.add_parser("flag", help="tag properties on a list, e.g. sheriff sales")
