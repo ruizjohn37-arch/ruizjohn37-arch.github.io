@@ -149,3 +149,57 @@ A buyer without an email can't get deal emails, so always get one.
   County and Essex County deed records, look for recent sales to LLCs, and for houses that sold twice in
   under a year (flips). Look up the owner's mailing address and send them a short letter.
 * **Signs and ads:** call the "We Buy Houses" signs and Facebook Marketplace investors around Elizabeth and Newark.
+
+## Off-market leads from NJ property records (free)
+Wholesalers make most of their money on houses that **aren't listed**. New Jersey's property records
+are public, so the tool can find the owners most likely to sell and the investors who buy for cash,
+the same thing paid tools like PropStream charge for.
+
+### What it finds
+**Sellers**, scored and ranked:
+* **Absentee owners**: the tax bill goes to a different address (landlords, inherited houses).
+* **Out-of-state owners.**
+* **Estates**: owner names like "ESTATE OF…" or "C/O" (inherited houses).
+* **Long-time owners**: 15 or 30+ years, so lots of equity.
+* **$0-$100 transfers**: family or inherited.
+* **Anything you tag** from another list: sheriff sale (pre-foreclosure), tax lien, code violation, vacant.
+
+Banks, towns, housing authorities and commercial properties are left out.
+
+**Cash buyers**: companies (LLC, Inc, Holdings…) that bought 2+ houses in the last 2 years, and anyone
+who flipped a house (bought and resold within 12 months). These are your best buyers.
+
+### Getting the records (about 2 minutes per county)
+1. **Tax list (owners and mailing addresses):** search for **"Parcels and MOD-IV Composite of NJ"**
+   on the NJ Geographic Information Network (NJGIN) open data site. Download your county
+   (Union, Essex…) as **CSV / spreadsheet**. Your county tax board's website may also offer the tax list.
+2. **Sheriff sales (pre-foreclosure):** search for "Union County sheriff sales" or "Essex County sheriff sales".
+   Copy the upcoming sales list into a spreadsheet with an **Address** column and save it as CSV.
+3. **Sales (to find more cash buyers and flips):** the tax list already includes each property's last sale.
+   A sales export with more history (for example, from a county or NJ Division of Taxation sales search)
+   makes buyer and flip detection better.
+
+### Using it
+In the dashboard, open **Off-market leads**:
+1. **Load records** → pick the county CSV.
+2. **Tag properties** → pick the sheriff-sale CSV and choose *pre-foreclosure*.
+3. Review the ranked leads. Click **Add to pipeline** on the ones you want, then track them like any other deal.
+4. Click **Print top 50 seller letters**. Records give mailing addresses, not emails, so off-market
+   owners get a letter: one per page, already addressed, with an honest wholesaler disclosure.
+   It also saves `data/mailing_list.csv` for envelopes, labels or a mail service.
+5. Under **Cash buyers found in records**, click **Add to buyers**, then **Print buyer letters**
+   to invite them onto your buyers list.
+
+From the terminal:
+```bash
+python3 dealfinder.py records import union_modiv.csv
+python3 dealfinder.py records flag union_sheriff_sales.csv --tag pre-foreclosure
+python3 dealfinder.py records leads --top 200 --town Elizabeth
+python3 dealfinder.py records buyers
+python3 dealfinder.py records letters --top 50              # seller letters
+python3 dealfinder.py records letters --kind buyer --top 50 # buyer letters
+```
+Try it first with the made-up samples: `sample_data/sample_tax_list.csv` and `sample_data/sample_sheriff_sales.csv`.
+
+Mail tips: send to the same lead every 3-4 weeks. Most deals come from the 3rd to 5th letter.
+Handwritten envelopes get opened more often. Honor every "don't contact me": add their address to your notes and stop.

@@ -182,6 +182,40 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
     </aside>
   </div>
   <section class="card" style="margin-top:16px">
+    <h2>Off-market leads from property records <span class="sub" id="rec-n"></span></h2>
+    <div class="actions" style="padding:12px 14px;margin:0">
+      <div>
+        <b style="font-size:13px">Load a county tax list or sales file</b>
+        <input type="file" id="rec-file" accept=".csv" style="display:block;margin-top:6px">
+        <button class="btn ghost" id="b-rec">Load records</button>
+        <div class="hint">NJ "Parcels and MOD-IV" tax list, or a sales export, as CSV. Load as many as you like.</div>
+      </div>
+      <div>
+        <b style="font-size:13px">Tag a list (sheriff sales, tax liens…)</b>
+        <input type="file" id="tag-file" accept=".csv" style="display:block;margin-top:6px">
+        <select id="tag-name" style="margin-top:6px;width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
+          <option>pre-foreclosure</option><option>tax lien</option><option>code violation</option><option>vacant</option>
+        </select>
+        <button class="btn ghost" id="b-tag">Tag properties</button>
+      </div>
+      <div>
+        <b style="font-size:13px">Mail letters</b>
+        <div class="hint" style="margin-top:6px">Records give mailing addresses, not emails, so off-market owners get a letter.
+          Opens a print-ready page, one letter per page.</div>
+        <a class="btn" style="display:inline-block;text-decoration:none" href="/letters?kind=seller&top=50" target="_blank">Print top 50 seller letters</a>
+      </div>
+    </div>
+    <div class="toolbar" style="padding-top:0"><input class="search" id="lead-q" placeholder="Filter leads by town, owner, flag (e.g. estate, absentee, FL)…"></div>
+    <div id="leads"></div>
+  </section>
+  <section class="card" style="margin-top:16px" id="rb-card">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
+      <span>Cash buyers found in records</span>
+      <a class="btn ghost" style="margin:0;text-decoration:none" href="/letters?kind=buyer&top=50" target="_blank">Print buyer letters</a>
+    </h2>
+    <div id="rbuyers"></div>
+  </section>
+  <section class="card" style="margin-top:16px">
     <h2>Cash buyers <span class="sub" id="buyers-n"></span></h2>
     <div class="buyers-form">
       <input id="by-name" placeholder="Name">
@@ -288,9 +322,10 @@ function dealRow(d) {
     <div class="row1">
       <div>
         <div class="addr">${d.listing_url ? `<a href="${esc(d.listing_url)}" target="_blank" rel="noopener">${esc(d.address)}</a>` : esc(d.address)}</div>
-        <div class="meta">${money(num(d.price))} · ${tidy(d.beds)} bd / ${tidy(d.baths)} ba · ${d.sqft || "?"} sqft
+        <div class="meta">${!num(d.price) ? `Off-market · not listed for sale` :
+          `${money(num(d.price))} · ${tidy(d.beds)} bd / ${tidy(d.baths)} ba · ${d.sqft || "?"} sqft
           · $${d.price_per_sqft || "?"}/sf (area $${d.area_median_ppsf || "?"}) · ${d.days_on_market} days
-          ${num(d.price_cut_pct) ? ` · cut ${d.price_cut_pct}%` : ""}</div>
+          ${num(d.price_cut_pct) ? ` · cut ${d.price_cut_pct}%` : ""}`}</div>
         <div style="margin-top:4px">${hot}${flags}</div>
       </div>
       <div class="score" title="Deal score">${d.score}</div>
@@ -365,7 +400,7 @@ function jobBox() {
     ${j.running ? "" : `<button class="tab" id="b-hide">Hide</button>`}</div>
     ${out ? `<pre>${esc(out)}</pre>` : ""}</div>`;
   const h = $("b-hide"); if (h) h.onclick = () => { state.job = {}; $("job").innerHTML = ""; };
-  ["b-fetch", "b-import", "b-draft", "b-send", "b-followup"].forEach(id => $(id).disabled = !!j.running);
+  ["b-fetch", "b-import", "b-draft", "b-send", "b-followup", "b-rec", "b-tag"].forEach(id => $(id).disabled = !!j.running);
 }
 
 function draftsBox() {
@@ -410,6 +445,29 @@ function followupCount() {
   }).length;
 }
 
+function leadsBox() {
+  const ls = state.leads || [], q = ($("lead-q").value || "").toLowerCase();
+  $("rec-n").textContent = state.records_count ? `· ${state.records_count.toLocaleString()} records loaded` : "";
+  const rows = ls.filter(l => !q || [l.town, l.owner, l.flags, l.address].join(" ").toLowerCase().includes(q)).slice(0, 40);
+  $("leads").innerHTML = !ls.length ? `<div class="empty">No records loaded yet. See "Getting NJ property records" in the README for where to download them.</div>` :
+    rows.map(l => `<div class="buyer" data-addr="${esc(l.address)}" data-town="${esc(l.town)}">
+      <div><b>${esc(l.address)}, ${esc(l.town)}</b> <span class="score" style="margin-left:6px">${l.score}</span>
+        <div class="meta">${esc(l.owner)} · mail to ${esc(l.mail_street)}, ${esc(l.mail_city_state)} ${esc(l.mail_zip)}
+          ${l.assessed ? ` · assessed ${money(l.assessed)}` : ""}</div>
+        <div style="margin-top:4px">${l.flags.split("; ").map(f => `<span class="pill ${/estate|foreclosure|lien/.test(f) ? "hot" : ""}">${esc(f)}</span>`).join("")}</div></div>
+      ${l.in_pipeline ? `<span class="hint">In pipeline</span>` : `<button class="btn ghost" data-addlead style="margin:0;align-self:center">Add to pipeline</button>`}
+    </div>`).join("") || `<div class="empty">No leads match.</div>`;
+  const rb = state.buyer_leads || [];
+  $("rb-card").style.display = rb.length ? "" : "none";
+  $("rbuyers").innerHTML = rb.map(b => `<div class="buyer" data-name="${esc(b.name)}">
+    <div><b>${esc(b.name)}</b>
+      <div class="meta">${b.purchases} purchase${b.purchases === 1 ? "" : "s"}${b.flips ? ` · ${b.flips} flip${b.flips === 1 ? "" : "s"}` : ""}
+        · ${money(b.min_price)}–${money(b.max_price)} · ${esc(b.towns)} · last bought ${esc(b.last_purchase)}</div>
+      <div class="meta">Mail: ${esc(b.mail_street)}, ${esc(b.mail_city_state)} ${esc(b.mail_zip)}</div></div>
+    ${b.added ? `<span class="hint">On your list</span>` : `<button class="btn ghost" data-addbuyer style="margin:0;align-self:center">Add to buyers</button>`}
+  </div>`).join("");
+}
+
 function buyersBox() {
   const bs = state.buyers || [];
   $("buyers-n").textContent = bs.length ? `· ${bs.length}` : "";
@@ -427,7 +485,7 @@ function buyersBox() {
 function render(keepList) {
   const n = state.deals.length;
   $("sub").textContent = `${n} ${n === 1 ? "property" : "properties"} · updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-  banner(); kpis(); jobBox(); draftsBox(); buyersBox();
+  banner(); kpis(); jobBox(); draftsBox(); buyersBox(); leadsBox();
   const fc = followupCount();
   $("followup-n").textContent = fc ? `${fc} deal${fc === 1 ? "" : "s"} due for a follow-up.` : `Follow-ups go out ${num(state.settings.followup_after_days) || 5}+ days after no reply (max 2).`; tabs(); followups(); funnel(); sentList();
   const typing = document.activeElement && $("deals").contains(document.activeElement);
@@ -455,6 +513,26 @@ $("b-import").onclick = async () => {
 };
 $("b-draft").onclick = () => run("draft");
 $("b-followup").onclick = () => run("followup");
+$("b-rec").onclick = async () => {
+  const f = $("rec-file").files[0]; if (!f) { toast("Pick a CSV file first"); return; }
+  run("records_import", { csv: await f.text() });
+};
+$("b-tag").onclick = async () => {
+  const f = $("tag-file").files[0]; if (!f) { toast("Pick a CSV file first"); return; }
+  run("records_import", { csv: await f.text(), tag: $("tag-name").value });
+};
+$("lead-q").addEventListener("input", leadsBox);
+$("leads").addEventListener("click", async e => {
+  if (!e.target.hasAttribute("data-addlead")) return;
+  const el = e.target.closest(".buyer");
+  await post("/api/lead/add", { address: el.dataset.addr, town: el.dataset.town });
+  await load(); toast("Added to pipeline");
+});
+$("rbuyers").addEventListener("click", async e => {
+  if (!e.target.hasAttribute("data-addbuyer")) return;
+  await post("/api/buyerlead/add", { name: e.target.closest(".buyer").dataset.name });
+  await load(); toast("Added to buyers");
+});
 $("deals").addEventListener("click", e => {
   if (!e.target.hasAttribute("data-blast")) return;
   run("blast", { address: e.target.closest(".deal").dataset.addr });

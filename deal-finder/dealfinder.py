@@ -11,12 +11,14 @@ Pipeline:
     send    -> send those drafts (dry run unless you pass --confirm)
     followup -> write a polite follow-up for deals with no reply after a few days
     blast   -> once a house is under contract, email the cash buyers who match it
+    records -> off-market leads, cash buyers and mail letters from NJ property records
     setup   -> answer a few questions once to create config.json
     dashboard -> open a page in your browser to track every deal
 
 Standard library only. Python 3.9+.
 """
 import argparse
+import records
 import csv
 import contextlib
 import getpass
@@ -374,12 +376,16 @@ def cmd_score(args):
     out.sort(key=lambda d: d["score"], reverse=True)
     if args.top:
         out = out[: args.top]
+    # keep deals that didn't come from listings (off-market leads you added)
+    listed = {d["address"].lower() for d in out}
+    out += [d for d in previous.values() if d["address"].lower() not in listed and d.get("contact_role") == "owner"
+            and d["address"].lower() not in {r["address"].lower() for r in raw}]
     write_deals(out)
 
     print(f"Ranked {len(out)} properties -> {DEALS}\n")
     print(f"{'#':>3} {'score':>6} {'price':>10} {'$/sf':>5} {'vs area':>8} {'cut':>6} {'DOM':>4}  address")
     for i, d in enumerate(out[:15], 1):
-        print(f"{i:>3} {d['score']:>6} {d['price']:>10,} {str(d['price_per_sqft']):>5} "
+        print(f"{i:>3} {d['score']:>6} {int(num(d['price']) or 0):>10,} {str(d['price_per_sqft']):>5} "
               f"{d['discount_vs_area_pct']:>7}% {d['price_cut_pct']:>5}% {d['days_on_market']:>4}  {d['address']}")
     print("\nNext: open data/deals.csv, change `status` to `approved` for the ones you want "
           "to reach out on (or `skip`), then run `draft`.")
@@ -680,7 +686,14 @@ def dashboard_state():
         d["buyer_matches"] = len(matching_buyers(d, buyers))
     settings = {"mao_percent": cfg.get("mao_percent", 0.70), "target_fee": cfg.get("target_fee", 10000),
                 "followup_after_days": cfg.get("followup_after_days", 5)}
-    return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings, "drafts_waiting": len(drafts),
+    in_pipeline = {d["address"].lower() for d in deals}
+    leads = [dict(l, in_pipeline=f"{l['address']}, {l['town']}".lower() in in_pipeline)
+             for l in records.build_leads(150)] if os.path.exists(records.RECORDS) else []
+    known = {(b.get("name") or "").lower() for b in buyers}
+    buyer_leads = [dict(b, added=b["name"].lower() in known)
+                   for b in records.find_buyers()[:60]] if os.path.exists(records.RECORDS) else []
+    return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings,
+            "leads": leads, "buyer_leads": buyer_leads, "records_count": len(records.load_records()), "drafts_waiting": len(drafts),
             "do_not_contact": sorted(do_not_contact()), "stages": STAGES, "job": JOB,
             "setup": {"config": has_cfg,
                       "rentcast": is_set(cfg, "rentcast_api_key"),
@@ -722,6 +735,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "dashboard.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
+        if self.path.startswith("/letters"):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            kind = "buyer" if q.get("kind") == ["buyer"] else "seller"
+            top = int((q.get("top") or ["50"])[0])
+            items = records.build_leads() if kind == "seller" else records.find_buyers()
+            items = [i for i in items if i.get("mail_street")][:top]
+            return self._send(200, records.render_letters(items, kind, load_config()).encode(), "text/html; charset=utf-8")
         if self.path == "/api/state":
             return self._send(200, dashboard_state())
         self._send(404, {"error": "not found"})
@@ -771,6 +791,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         argparse.Namespace(csv=path, role=body.get("role") or "listing agent"))
             elif action == "draft":
                 run_job("Writing emails", cmd_draft, argparse.Namespace())
+            elif action == "records_import":
+                path = os.path.join(DATA, "records_upload.csv")
+                os.makedirs(DATA, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(body.get("csv", ""))
+                if body.get("tag"):
+                    run_job("Tagging properties", records.cmd_flag, argparse.Namespace(csv=path, tag=body["tag"]))
+                else:
+                    run_job("Loading property records", records.cmd_import,
+                            argparse.Namespace(csv=path, town=body.get("town"), county=body.get("county")))
             elif action == "followup":
                 run_job("Writing follow-ups", cmd_followup, argparse.Namespace(days=None))
             elif action == "blast":
@@ -807,6 +837,37 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             if not body.get("delete"):
                 row["added"] = row["added"] or datetime.now().date().isoformat()
                 buyers.append(row)
+            write_buyers(buyers)
+            return self._send(200, {"ok": True})
+        if self.path == "/api/lead/add":
+            lead = next((l for l in records.build_leads() if l["address"] == body.get("address")
+                         and l["town"] == body.get("town")), None)
+            if not lead:
+                return self._send(404, {"error": "lead not found"})
+            deals = read_deals() if os.path.exists(DEALS) else []
+            full = f"{lead['address']}, {lead['town']}".strip(", ")
+            if full.lower() not in {d["address"].lower() for d in deals}:
+                deals.append({
+                    "status": "pending", "score": lead["score"], "address": full,
+                    "zip": str(lead.get("mail_zip", ""))[:5] if lead.get("mail_street", "").upper() == lead["address"].upper() else "",
+                    "price": "", "beds": "", "baths": "", "sqft": "", "days_on_market": "",
+                    "property_type": "Off-market", "motivation_flags": lead["flags"],
+                    "contact_name": lead["owner"], "contact_role": "owner",
+                    "notes": f"Mail to: {lead['mail_street']}, {lead['mail_city_state']} {lead['mail_zip']}",
+                    "updated": datetime.now().isoformat(timespec="seconds"),
+                })
+                write_deals(deals)
+            return self._send(200, {"ok": True})
+        if self.path == "/api/buyerlead/add":
+            b = next((x for x in records.find_buyers() if x["name"] == body.get("name")), None)
+            if not b:
+                return self._send(404, {"error": "not found"})
+            buyers = [x for x in read_buyers() if (x.get("name") or "").lower() != b["name"].lower()]
+            buyers.append({"name": b["name"], "email": "", "phone": "", "zips": "", "max_price": "",
+                           "notes": f"From records: {b['purchases']} buys, {b['flips']} flips, "
+                                    f"${b['min_price']:,}-${b['max_price']:,} in {b['towns']}. "
+                                    f"Mail: {b['mail_street']}, {b['mail_city_state']} {b['mail_zip']}",
+                           "added": datetime.now().date().isoformat()})
             write_buyers(buyers)
             return self._send(200, {"ok": True})
         if self.path == "/api/buyers/starter":
@@ -876,6 +937,31 @@ def main():
     bl = sub.add_parser("blast", help="write emails to matching cash buyers for a deal under contract")
     bl.add_argument("address", help="the deal's address, exactly as in deals.csv")
     bl.set_defaults(func=cmd_blast)
+
+    rc = sub.add_parser("records", help="off-market leads and cash buyers from NJ property records")
+    rsub = rc.add_subparsers(dest="rcmd", required=True)
+    ri = rsub.add_parser("import", help="load a tax list or sales CSV")
+    ri.add_argument("csv")
+    ri.add_argument("--town")
+    ri.add_argument("--county")
+    ri.set_defaults(func=records.cmd_import)
+    rl = rsub.add_parser("leads", help="rank owners most likely to sell")
+    rl.add_argument("--top", type=int)
+    rl.add_argument("--town")
+    rl.set_defaults(func=records.cmd_leads)
+    rb = rsub.add_parser("buyers", help="find companies that keep buying (cash buyers)")
+    rb.add_argument("--months", type=int, default=24)
+    rb.add_argument("--min-buys", type=int, default=2)
+    rb.set_defaults(func=records.cmd_buyers)
+    rf = rsub.add_parser("flag", help="tag properties on a list, e.g. sheriff sales")
+    rf.add_argument("csv")
+    rf.add_argument("--tag", default="pre-foreclosure")
+    rf.set_defaults(func=records.cmd_flag)
+    rt = rsub.add_parser("letters", help="printable letters + mailing list")
+    rt.add_argument("--kind", choices=["seller", "buyer"], default="seller")
+    rt.add_argument("--top", type=int, default=50)
+    rt.add_argument("--town")
+    rt.set_defaults(func=lambda a: records.cmd_letters(a, load_config()))
 
     se = sub.add_parser("send", help="send drafts (dry run unless --confirm)")
     se.add_argument("--confirm", action="store_true")
