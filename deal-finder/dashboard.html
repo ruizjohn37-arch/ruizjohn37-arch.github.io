@@ -413,12 +413,15 @@ function followupCount() {
 function buyersBox() {
   const bs = state.buyers || [];
   $("buyers-n").textContent = bs.length ? `· ${bs.length}` : "";
-  $("buyers").innerHTML = bs.length ? bs.map(b => `<div class="buyer" data-email="${esc(b.email)}">
+  $("buyers").innerHTML = bs.length ? bs.map(b => `<div class="buyer" data-email="${esc(b.email)}" data-name="${esc(b.name)}">
     <div><b>${esc(b.name || b.email)}</b>
-      <div class="meta">${esc(b.email)}${b.phone ? " · " + esc(b.phone) : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
+      <div class="meta">${b.email ? esc(b.email) : "<i>no email yet</i>"}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>` : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
     <button class="btn danger" data-rm style="margin:0">Remove</button></div>`).join("") :
     `<div class="empty">No cash buyers yet. Every wholesale deal needs one, so start this list before you sign a contract.
-      Good places to find them: recent cash sales in county records, local investor meetups, and "we buy houses" signs.</div>`;
+      Good places to find them: recent cash sales in county records, local investor meetups, and "we buy houses" signs.
+      <div><button class="btn ghost" id="b-starter">Load starter list (NJ cash-buyer companies)</button></div></div>`;
+  const st = $("b-starter");
+  if (st) st.onclick = async () => { const r = await post("/api/buyers/starter", {}); const j = await r.json(); await load(); toast(`Added ${j.added} buyers`); };
 }
 
 function render(keepList) {
@@ -466,9 +469,9 @@ $("b-buyer").onclick = async () => {
 };
 $("buyers").addEventListener("click", async e => {
   if (!e.target.hasAttribute("data-rm")) return;
-  const email = e.target.closest(".buyer").dataset.email;
-  if (!confirm(`Remove ${email} from your buyers?`)) return;
-  await post("/api/buyer", { email, delete: true }); await load(); toast("Removed");
+  const el = e.target.closest(".buyer"), email = el.dataset.email, name = el.dataset.name;
+  if (!confirm(`Remove ${name || email} from your buyers?`)) return;
+  await post("/api/buyer", { email, name, delete: true }); await load(); toast("Removed");
 });
 $("b-send").onclick = () => {
   const n = (state.drafts || []).length;

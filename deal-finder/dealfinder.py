@@ -795,17 +795,27 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 json.dump(d, f, indent=2)
             return self._send(200, d)
         if self.path == "/api/buyer":
-            buyers = read_buyers()
-            email = (body.get("email") or "").strip().lower()
-            if "@" not in email:
-                return self._send(400, {"error": "Buyer needs an email."})
-            buyers = [b for b in buyers if b["email"].lower() != email]
+            # a buyer is identified by email, or by name when you only have a phone number
+            key = lambda b: (b.get("email") or "").strip().lower() or (b.get("name") or "").strip().lower()
+            row = {k: str(body.get(k, "")).strip() for k in BUYER_COLUMNS}
+            row["email"] = row["email"].lower()
+            if not key(row):
+                return self._send(400, {"error": "Buyer needs a name or email."})
+            if row["email"] and "@" not in row["email"]:
+                return self._send(400, {"error": "That email doesn't look right."})
+            buyers = [b for b in read_buyers() if key(b) != key(row)]
             if not body.get("delete"):
-                row = {k: str(body.get(k, "")).strip() for k in BUYER_COLUMNS}
-                row["email"], row["added"] = email, row["added"] or datetime.now().date().isoformat()
+                row["added"] = row["added"] or datetime.now().date().isoformat()
                 buyers.append(row)
             write_buyers(buyers)
             return self._send(200, {"ok": True})
+        if self.path == "/api/buyers/starter":
+            have = {(b.get("name") or "").lower() for b in read_buyers()}
+            with open(os.path.join(HERE, "starter_buyers.csv"), newline="") as f:
+                new = [dict(r, added=datetime.now().date().isoformat()) for r in csv.DictReader(f)
+                       if r["name"].lower() not in have]
+            write_buyers(read_buyers() + new)
+            return self._send(200, {"added": len(new)})
         if self.path == "/api/dnc":
             email = (body.get("email") or "").strip().lower()
             if "@" not in email:

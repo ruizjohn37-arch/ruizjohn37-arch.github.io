@@ -121,3 +121,31 @@ under contract.
 Several states (for example Illinois, Oklahoma, Pennsylvania, Ohio, and South Carolina) now
 require a license, or specific disclosures, to market or assign contracts as a wholesaler.
 Check yours before you start sending.
+
+## Building your cash-buyer list
+In the dashboard, click **Load starter list** under *Cash buyers*. It adds NJ cash-buyer companies
+found in public directories (`starter_buyers.csv`). The numbers come from third-party directories,
+so confirm each one when you call.
+
+**Phone script (2 minutes):**
+> "Hi, this is John. I'm a wholesaler in Union and Essex County, building my buyers list so I can
+> send you off-market deals before anyone else. Do you buy in this area? What would you want to see?"
+
+Ask every buyer, then fill in their row in the dashboard:
+1. Which towns or ZIP codes do you buy in?
+2. What's your max price, and what kind of house (single family, 2-4 family, rentals or flips)?
+3. How much rehab is OK: cosmetic only, or full gut?
+4. Do you buy contract assignments, and how fast can you close?
+5. Can you show proof of funds (a bank letter or statement)?
+6. What's the best email for deals?
+
+A buyer without an email can't get deal emails, so always get one.
+
+**More places to find buyers:**
+* **Investor meetups:** a Union County investor group meets on the 2nd Wednesday of each month at
+  The Westwood, 438 North Ave, Garwood (confirm the date on Meetup). The New Jersey REIA (free with RSVP
+  on Meetup) and Metro REIA also hold meetings.
+* **County records:** landlords and flippers who paid cash recently are the best buyers. In Union
+  County and Essex County deed records, look for recent sales to LLCs, and for houses that sold twice in
+  under a year (flips). Look up the owner's mailing address and send them a short letter.
+* **Signs and ads:** call the "We Buy Houses" signs and Facebook Marketplace investors around Elizabeth and Newark.
