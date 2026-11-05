@@ -15,6 +15,20 @@ This tool gets the same MLS listings from **RentCast**, an API built for this ki
 and it can also load any CSV you have (PropStream, a county list, a skip-traced list, or a
 sheet you typed up while browsing Zillow).
 
+## See a full deal first (practice run)
+```bash
+python3 dealfinder.py demo --demo        # runs a whole deal on made-up data, sends nothing
+python3 dealfinder.py dashboard --demo   # look at the result in the dashboard
+```
+It runs one deal from start to finish in a separate `data_demo/` folder, so your real data is never touched:
+1. Find and rank listed houses.
+2. Find off-market owners and cash buyers in property records, and print letters.
+3. Build a buyers list.
+4. Email the best listings, then follow up after 5 days.
+5. Run the offer numbers when the agent replies.
+6. Get the house under contract and email the matching buyers.
+7. Close and collect the assignment fee.
+
 ## Easiest way: double-click
 1. Install Python from https://www.python.org/downloads/ (on Windows, tick **"Add python.exe to PATH"**).
 2. Download this folder (on GitHub: **Code > Download ZIP**, then unzip it).

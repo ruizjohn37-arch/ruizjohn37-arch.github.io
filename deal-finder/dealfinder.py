@@ -13,12 +13,20 @@ Pipeline:
     blast   -> once a house is under contract, email the cash buyers who match it
     records -> off-market leads, cash buyers and mail letters from NJ property records
     setup   -> answer a few questions once to create config.json
+    demo    -> a full practice deal on sample data:  python3 dealfinder.py demo --demo
     dashboard -> open a page in your browser to track every deal
 
 Standard library only. Python 3.9+.
 """
 import argparse
-import records
+import os
+import sys
+
+if "--demo" in sys.argv:  # keep the practice run away from your real data
+    sys.argv.remove("--demo")
+    os.environ["DEALFINDER_DATA"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_demo")
+
+import records  # noqa: E402  (reads DEALFINDER_DATA)
 import csv
 import contextlib
 import getpass
@@ -39,7 +47,7 @@ from datetime import datetime
 from email.message import EmailMessage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(HERE, "data")
+DATA = os.environ.get("DEALFINDER_DATA") or os.path.join(HERE, "data")
 RAW = os.path.join(DATA, "raw_listings.json")
 DEALS = os.path.join(DATA, "deals.csv")
 OUTBOX = os.path.join(DATA, "outbox")
@@ -904,6 +912,155 @@ def cmd_dashboard(args):
         print("\nStopped.")
 
 
+# ---------------------------------------------------------------- demo
+def fake_send(when):
+    """Stand-in for `send` in the demo: logs the drafts as sent on a given date, sends nothing."""
+    n = 0
+    for name in sorted(os.listdir(OUTBOX)) if os.path.isdir(OUTBOX) else []:
+        if not name.endswith(".json"):
+            continue
+        with open(os.path.join(OUTBOX, name)) as f:
+            m = json.load(f)
+        append_sent({"sent_at": when.isoformat(timespec="seconds"), "email": m["to"], "address": m["address"],
+                     "subject": m["subject"], "kind": m.get("kind", "intro")})
+        os.rename(os.path.join(OUTBOX, name), os.path.join(OUTBOX, name + ".sent"))
+        n += 1
+    deals = read_deals()
+    sent = {r["address"].lower() for r in read_sent() if r["kind"] == "intro"}
+    for d in deals:
+        if d["status"] == "approved" and d["address"].lower() in sent:
+            d["status"] = "emailed"
+    write_deals(deals)
+    return n
+
+
+def set_deal(address, **fields):
+    deals = read_deals()
+    for d in deals:
+        if d["address"] == address:
+            d.update({k: str(v) for k, v in fields.items()})
+            d["updated"] = datetime.now().isoformat(timespec="seconds")
+    write_deals(deals)
+
+
+def cmd_demo(args):
+    """A full wholesale deal, start to finish, on made-up sample data. Sends nothing."""
+    import shutil
+    from datetime import timedelta
+    if os.path.basename(DATA) != "data_demo":
+        sys.exit("Run it as: python3 dealfinder.py demo --demo")
+    if os.path.isdir(DATA):
+        shutil.rmtree(DATA)
+    os.makedirs(DATA)
+    with open(os.path.join(HERE, "config.example.json")) as f:
+        cfg = json.load(f)
+    if os.path.exists(os.path.join(HERE, "config.json")):
+        with open(os.path.join(HERE, "config.json")) as f:
+            cfg.update(json.load(f))
+    global load_config
+    real_load = load_config
+    load_config = lambda: cfg  # noqa: E731  the demo never needs your keys
+    records_cfg = cfg
+    quiet = io.StringIO()
+    sample = os.path.join(HERE, "sample_data")
+    now = datetime.now()
+    say = lambda t: print(t, flush=True)  # noqa: E731
+
+    def step(n, title):
+        say(f"\n{'=' * 64}\nSTEP {n}: {title}\n{'=' * 64}")
+
+    try:
+        step(1, "Find houses for sale and rank them")
+        with contextlib.redirect_stdout(quiet):
+            cmd_import(argparse.Namespace(csv=os.path.join(sample, "sample_listings.csv"), role="listing agent"))
+            cmd_score(argparse.Namespace(max_price=None, top=None))
+        for d in read_deals()[:3]:
+            say(f"  score {d['score']:>6}  ${int(num(d['price'])):,}  {d['discount_vs_area_pct']}% under area, "
+                f"{d['days_on_market']} days  {d['address']}  [{d['motivation_flags']}]")
+
+        step(2, "Find off-market owners and cash buyers in public records")
+        with contextlib.redirect_stdout(quiet):
+            records.cmd_import(argparse.Namespace(csv=os.path.join(sample, "sample_tax_list.csv"), town=None, county=None))
+            records.cmd_flag(argparse.Namespace(csv=os.path.join(sample, "sample_sheriff_sales.csv"), tag="pre-foreclosure"))
+        leads, rbuyers = records.build_leads(), records.find_buyers()
+        for l in leads[:3]:
+            say(f"  lead  {l['score']:>5}  {l['address']}, {l['town']}  {l['owner']}  [{l['flags']}]")
+        for b in rbuyers:
+            say(f"  buyer {b['name']}: {b['purchases']} buys, {b['flips']} flips, ${b['min_price']:,}-${b['max_price']:,}")
+
+        step(3, "Build the cash-buyer list")
+        write_buyers([
+            {"name": "Ana Investor (sample)", "email": "ana.example@example.com", "zips": "78210, 78211",
+             "max_price": "190000", "notes": "flips; met at investor meetup", "added": now.date().isoformat()},
+            {"name": "Bright Door Properties LLC", "email": "deals.example@example.com", "zips": "",
+             "max_price": "200000", "notes": "found in records: repeat buyer + flip", "added": now.date().isoformat()},
+        ])
+        say("  2 buyers on the list (one from a meetup, one found in the records)")
+        n = records.write_letters("seller", 25, records_cfg)
+        say(f"  {n} letters printed for off-market owners -> {records.LETTERS}")
+
+        step(4, "Approve the best houses and email the listing agents")
+        top = read_deals()[:2]
+        for d in top:
+            set_deal(d["address"], status="approved")
+        with contextlib.redirect_stdout(quiet):
+            cmd_draft(argparse.Namespace())
+        sent = fake_send(now - timedelta(days=6))
+        say(f"  {sent} first emails sent (simulated, dated 6 days ago):")
+        for r in read_sent():
+            say(f"    -> {r['email']}  \"{r['subject']}\"")
+
+        step(5, "No reply after 5 days: polite follow-ups")
+        with contextlib.redirect_stdout(quiet):
+            cmd_followup(argparse.Namespace(days=None))
+        sent = fake_send(now - timedelta(days=1))
+        say(f"  {sent} follow-up(s) sent (simulated)")
+
+        deal = top[0]["address"]
+        step(6, f"The agent for {deal.split(',')[0]} replies: seller wants out. Run the numbers")
+        arv, repairs, fee = 265000, 40000, 10000
+        mao = arv * cfg.get("mao_percent", 0.70) - repairs
+        offer = int((mao - fee) // 1000 * 1000)
+        set_deal(deal, status="negotiating", arv=arv, repairs=repairs, assignment_fee=fee, offer=offer,
+                 notes="Agent: seller inherited it, lives out of state, wants a quick close")
+        say(f"  After-repair value ${arv:,}, repairs ${repairs:,}")
+        say(f"  Buyer's max (70% rule): ${arv:,} x 0.70 - ${repairs:,} = ${mao:,.0f}")
+        say(f"  Your offer to the seller, keeping a ${fee:,} fee: ${offer:,} (asking ${int(num(top[0]['price'])):,})")
+
+        step(7, "Seller accepts: house under contract. Email matching cash buyers")
+        set_deal(deal, status="under_contract")
+        d = next(x for x in read_deals() if x["address"] == deal)
+        matches = matching_buyers(d, read_buyers())
+        say(f"  {len(matches)} of {len(read_buyers())} buyers match (ZIP + max price): "
+            + ", ".join(b["name"] for b in matches))
+        with contextlib.redirect_stdout(quiet):
+            cmd_blast(argparse.Namespace(address=deal))
+        draft = next(json.load(open(os.path.join(OUTBOX, f))) for f in os.listdir(OUTBOX) if f.endswith(".json"))
+        say("  Email to buyer:\n    " + draft["body"].split("\n\n--")[0].replace("\n", "\n    "))
+        fake_send(now)
+
+        step(8, "A buyer takes the contract. Close and get paid")
+        set_deal(deal, status="closed", notes="Assigned to Ana Investor (sample). Closed with title company.")
+        state = dashboard_state()
+        earned = sum(num(x.get("assignment_fee")) or 0 for x in state["deals"] if x["status"] == "closed")
+        say(f"  Contract price ${offer:,} + your fee ${fee:,} = buyer pays ${offer + fee:,}")
+        say(f"  Buyer's max was ${mao:,.0f}, so the buyer still has ${mao - offer - fee:,.0f} of room.")
+
+        step(9, "Scoreboard")
+        stages = {}
+        for x in state["deals"]:
+            stages[x["status"]] = stages.get(x["status"], 0) + 1
+        say(f"  Properties found:  {len(state['deals'])} listed + {len(leads)} off-market leads")
+        say(f"  Emails sent:       {len(state['sent'])}  (first emails, follow-ups, buyer emails)")
+        say(f"  Cash buyers:       {len(state['buyers'])}")
+        say(f"  Pipeline:          " + ", ".join(f"{k} {v}" for k, v in stages.items()))
+        say(f"  Fees earned:       ${earned:,.0f}")
+        say("\nThis was a practice run on made-up data. Nothing was emailed or mailed.")
+        say("See it in the dashboard:  python3 dealfinder.py dashboard --demo")
+    finally:
+        load_config = real_load
+
+
 # ---------------------------------------------------------------- cli
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -966,6 +1123,8 @@ def main():
     se = sub.add_parser("send", help="send drafts (dry run unless --confirm)")
     se.add_argument("--confirm", action="store_true")
     se.set_defaults(func=cmd_send)
+
+    sub.add_parser("demo", help="practice run of a full deal on sample data (use with --demo)").set_defaults(func=cmd_demo)
 
     sub.add_parser("setup", help="answer a few questions to create config.json").set_defaults(func=cmd_setup)
 

@@ -21,7 +21,7 @@ from collections import defaultdict
 from datetime import date, datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(HERE, "data")
+DATA = os.environ.get("DEALFINDER_DATA") or os.path.join(HERE, "data")
 RECORDS = os.path.join(DATA, "records.json")
 LEADS = os.path.join(DATA, "leads.csv")
 BUYER_LEADS = os.path.join(DATA, "buyer_leads.csv")
