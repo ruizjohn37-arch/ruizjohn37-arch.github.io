@@ -474,8 +474,7 @@ obligated to accept it.</p>
 
 BUYER_LETTER = """<p>Hi,</p>
 <p>My name is {you}. I find off-market houses in {towns} and sell the contracts to cash investors.
-I saw that {name} has been buying in the area, and I'd like to send you deals before anyone else
-sees them.</p>
+{saw} and I'd like to send you deals before anyone else sees them.</p>
 <p>If you'd like to be on my buyers list, text or call me at <b>{phone}</b> or email <b>{email}</b>
 with the towns you buy in, your price range, and how much rehab you'll take on.</p>
 <p>Thanks,<br>{you}</p>"""
@@ -502,8 +501,10 @@ def render_letters(items, kind, cfg):
     ret = f"{you}<br>{html.escape(cfg.get('mailing_address', ''))}"
     pages = []
     for it in items:
+        named = bool(it.get("owner")) or (kind == "buyer" and not str(it.get("name", "")).startswith("Owner at"))
+        recipient = (it.get("owner") or it.get("name")) if named else ("Real Estate Investor" if kind == "buyer" else "Current Owner")
         to = "<br>".join(html.escape(x) for x in [
-            it.get("owner") or it.get("name") or "Current Owner", it.get("mail_street"),
+            recipient, it.get("mail_street"),
             f"{it.get('mail_city_state', '')} {it.get('mail_zip', '')}".strip()] if x)
         if kind == "seller":
             body = SELLER_LETTER.format(first=html.escape(first_name(it.get("owner"))), you=html.escape(you),
@@ -512,7 +513,9 @@ def render_letters(items, kind, cfg):
                                         phone=html.escape(cfg.get("your_phone") or "[your phone]"),
                                         email=html.escape(cfg.get("your_email", "")))
         else:
-            body = BUYER_LETTER.format(you=html.escape(you), name=html.escape(company_name(it["name"])),
+            saw = (f"I saw that {company_name(it['name'])} has been buying in the area," if named else
+                   "Public records show you've bought several properties in the area,")
+            body = BUYER_LETTER.format(you=html.escape(you), saw=html.escape(saw),
                                        towns=html.escape(it.get("towns") or "your area"),
                                        phone=html.escape(cfg.get("your_phone") or "[your phone]"),
                                        email=html.escape(cfg.get("your_email", "")))
@@ -526,15 +529,23 @@ def render_letters(items, kind, cfg):
             "</style></head><body>" + "".join(pages) + "</body></html>")
 
 
+def letter_paths(kind):
+    """Seller and buyer letters go to separate files so one never overwrites the other."""
+    if kind == "buyer":
+        return os.path.join(DATA, "buyer_letters.html"), os.path.join(DATA, "buyer_mailing_list.csv")
+    return LETTERS, MAILING
+
+
 def write_letters(kind, top, cfg, town=None):
     items = build_leads(None, town) if kind == "seller" else find_buyers()
     items = [i for i in items if i.get("mail_street")][:top]
     if not items:
         sys.exit("Nobody to mail yet. Import records first.")
     os.makedirs(DATA, exist_ok=True)
-    with open(LETTERS, "w") as f:
+    letters, mailing = letter_paths(kind)
+    with open(letters, "w") as f:
         f.write(render_letters(items, kind, cfg))
-    with open(MAILING, "w", newline="") as f:
+    with open(mailing, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["name", "address", "city_state", "zip", "property"])
         for it in items:
@@ -545,5 +556,6 @@ def write_letters(kind, top, cfg, town=None):
 
 def cmd_letters(args, cfg):
     n = write_letters(args.kind, args.top, cfg, args.town)
-    print(f"{n} letters -> {LETTERS} (open it and print; one letter per page)")
-    print(f"Mailing list -> {MAILING} (for envelopes/labels, or upload to a mail service like Click2Mail)")
+    letters, mailing = letter_paths(args.kind)
+    print(f"{n} letters -> {letters} (open it and print; one letter per page)")
+    print(f"Mailing list -> {mailing} (for envelopes/labels, or upload to a mail service like Click2Mail)")
