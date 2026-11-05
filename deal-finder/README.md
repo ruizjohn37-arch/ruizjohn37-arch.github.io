@@ -15,6 +15,20 @@ This tool gets the same MLS listings from **RentCast**, an API built for this ki
 and it can also load any CSV you have (PropStream, a county list, a skip-traced list, or a
 sheet you typed up while browsing Zillow).
 
+## See a full deal first (practice run)
+```bash
+python3 dealfinder.py demo --demo        # runs a whole deal on made-up data, sends nothing
+python3 dealfinder.py dashboard --demo   # look at the result in the dashboard
+```
+It runs one deal from start to finish in a separate `data_demo/` folder, so your real data is never touched:
+1. Find and rank listed houses.
+2. Find off-market owners and cash buyers in property records, and print letters.
+3. Build a buyers list.
+4. Email the best listings, then follow up after 5 days.
+5. Run the offer numbers when the agent replies.
+6. Get the house under contract and email the matching buyers.
+7. Close and collect the assignment fee.
+
 ## Easiest way: double-click
 1. Install Python from https://www.python.org/downloads/ (on Windows, tick **"Add python.exe to PATH"**).
 2. Download this folder (on GitHub: **Code > Download ZIP**, then unzip it).
@@ -122,6 +136,32 @@ Several states (for example Illinois, Oklahoma, Pennsylvania, Ohio, and South Ca
 require a license, or specific disclosures, to market or assign contracts as a wholesaler.
 Check yours before you start sending.
 
+## Offers to listing agents (high-volume offer method)
+
+This is the "send lots of offers on listed houses" method. You make a fair cash offer to the
+listing agent on many houses at once, and resell (assign) the few that say yes to a cash buyer.
+
+1. **Get listings.** Open `listings_template.csv` in Excel or Google Sheets and paste in houses from
+   Zillow, Redfin or Realtor.com (address, price, agent name and email; the agent's email is usually
+   on their brokerage page). Older listings with price cuts and "as-is" or "investor" in the remarks
+   are best. Upload it with **...or upload a list** (choose "Contacts are listing agents").
+2. **Press "Send offers to agents".** It writes an offer email for your 25 best-ranked houses. The
+   price comes from, in order:
+   - the offer you typed on the house,
+   - your ARV and repairs (70% rule minus your fee),
+   - the highest max price of a cash buyer whose ZIPs fit the house, minus your fee,
+   - otherwise 75% of asking (`offer_percent_of_list` in config.json).
+
+   Never more than 97% of asking, rounded down to $1,000. Each house shows its suggested offer and why.
+3. **Read every email, then Send.** Each one says you may assign the contract, which keeps you honest
+   with the agent and seller (and in NJ you should). Follow-ups go out after 5 days with no reply.
+4. **A "yes" or a counter:** move it to Negotiating, sign the agent's offer form with an assignment
+   clause ("John Ruiz and/or assigns") and an inspection period, then email your buyers.
+
+Expect most agents to say no or not reply; that's normal for this method. Only offer a price you
+could actually get a buyer to pay, and put down only an earnest money deposit you can afford to lose
+if no buyer closes. Change close days, inspection days and deposit in config.json.
+
 ## Building your cash-buyer list
 In the dashboard, click **Load starter list** under *Cash buyers*. It adds NJ cash-buyer companies
 found in public directories (`starter_buyers.csv`). The numbers come from third-party directories,
@@ -149,3 +189,108 @@ A buyer without an email can't get deal emails, so always get one.
   County and Essex County deed records, look for recent sales to LLCs, and for houses that sold twice in
   under a year (flips). Look up the owner's mailing address and send them a short letter.
 * **Signs and ads:** call the "We Buy Houses" signs and Facebook Marketplace investors around Elizabeth and Newark.
+
+## Off-market leads from NJ property records (free)
+Wholesalers make most of their money on houses that **aren't listed**. New Jersey's property records
+are public, so the tool can find the owners most likely to sell and the investors who buy for cash,
+the same thing paid tools like PropStream charge for.
+
+### What it finds
+**Sellers**, scored and ranked:
+* **Absentee owners**: the tax bill goes to a different address (landlords, inherited houses).
+* **Out-of-state owners.**
+* **Estates**: owner names like "ESTATE OF…" or "C/O" (inherited houses).
+* **Long-time owners**: 15 or 30+ years, so lots of equity.
+* **$0-$100 transfers**: family or inherited.
+* **Anything you tag** from another list: sheriff sale (pre-foreclosure), tax lien, code violation, vacant.
+
+Banks, towns, housing authorities and commercial properties are left out.
+
+**Cash buyers**: companies (LLC, Inc, Holdings…), or, when the records leave out owner names (the
+state's public parcel service does), the same mailing address that bought 2+ houses in the last 3 years, and anyone
+who flipped a house (bought and resold within 12 months). These are your best buyers.
+
+### Easiest: pull a whole county automatically
+```bash
+python3 dealfinder.py records pull --county UNION                      # every home in Union County (~130,000)
+python3 dealfinder.py records pull --county UNION --towns Elizabeth,Linden,Plainfield
+```
+This downloads the county's tax list straight from New Jersey's public parcel service (the
+"Parcels and MOD-IV Composite" on services2.arcgis.com) and loads it. It takes a few minutes for a
+whole county. Run it again every month or two to pick up new sales.
+
+### Or download the files yourself (about 2 minutes per county)
+1. **Tax list (owners and mailing addresses):** search for **"Parcels and MOD-IV Composite of NJ"**
+   on the NJ Geographic Information Network (NJGIN) open data site. Download your county
+   (Union, Essex…) as **CSV / spreadsheet**. Your county tax board's website may also offer the tax list.
+2. **Sheriff sales (pre-foreclosure):** search for "Union County sheriff sales" or "Essex County sheriff sales".
+   Copy the upcoming sales list into a spreadsheet with an **Address** column and save it as CSV.
+3. **Sales (to find more cash buyers and flips):** the tax list already includes each property's last sale.
+   A sales export with more history (for example, from a county or NJ Division of Taxation sales search)
+   makes buyer and flip detection better.
+
+### Using it
+In the dashboard, open **Off-market leads**:
+1. **Load records** → pick the county CSV.
+2. **Tag properties** → pick the sheriff-sale CSV and choose *pre-foreclosure*.
+3. Review the ranked leads. Click **Add to pipeline** on the ones you want, then track them like any other deal.
+4. Click **Print top 50 seller letters**. Records give mailing addresses, not emails, so off-market
+   owners get a letter: one per page, already addressed, with an honest wholesaler disclosure.
+   It also saves `data/mailing_list.csv` for envelopes, labels or a mail service.
+5. Under **Cash buyers found in records**, click **Add to buyers**, then **Print buyer letters**
+   to invite them onto your buyers list.
+
+From the terminal:
+```bash
+python3 dealfinder.py records import union_modiv.csv
+python3 dealfinder.py records flag union_sheriff_sales.csv --tag pre-foreclosure
+python3 dealfinder.py records leads --top 200 --town Elizabeth
+python3 dealfinder.py records buyers
+python3 dealfinder.py records letters --top 50              # seller letters
+python3 dealfinder.py records letters --kind buyer --top 50 # buyer letters
+```
+Try it first with the made-up samples: `sample_data/sample_tax_list.csv` and `sample_data/sample_sheriff_sales.csv`.
+
+Mail tips: send to the same lead every 3-4 weeks. Most deals come from the 3rd to 5th letter.
+Handwritten envelopes get opened more often. Honor every "don't contact me": add their address to your notes and stop.
+
+
+## The factory view
+The top of the dashboard shows your business as a production line:
+
+**Records → Off-market leads → New → Approved → Contacted → Replied → Negotiating → Under contract → Cash buyers → Closed**
+
+Each station shows how many deals are in it, with a status light:
+* **green**: deals are moving
+* **amber**: it needs you (approve, answer replies, follow-ups due, or a contract with no matching buyer)
+
+Click a station to jump to its deals. Below it, the **Deal board** lets you drag a card to the
+next stage, and the **Factory log** shows everything that happened, newest first.
+
+## Open it on your phone
+
+The app runs on your computer; your phone opens it over your home Wi-Fi.
+
+1. On the computer, start it with `python3 dealfinder.py dashboard --phone`
+   (Windows: `py dealfinder.py dashboard --phone`).
+2. The black window prints an address like `http://192.168.1.23:8765/` and a 6-digit PIN.
+3. On your phone (same Wi-Fi), type that address into Safari or Chrome and enter the PIN.
+   Tip: use "Add to Home Screen" so it opens like an app.
+
+The computer must stay on with the window open. You get a new PIN every start. Only use this on
+your own home network, not coffee-shop or hotel Wi-Fi. If the phone can't connect, allow Python
+through the computer's firewall when it asks.
+
+## Texting (Google Voice or your phone)
+Every agent, owner and buyer with a phone number gets a **Text** button. Clicking it opens your
+texting app (your phone, or Google Voice if that's your default) with a short message already
+written, and **you** press send. The tool doesn't send texts by itself, on purpose:
+* Google Voice doesn't allow automated or bulk texting, and accounts that do it get suspended.
+* Under federal law (the TCPA and the Do Not Call rules), texting homeowners' cell phones for
+  marketing without their permission can cost $500-$1,500 per text. Many wholesalers get sued over this.
+* **Safe:** texting listing agents at their business numbers, buyers who gave you their number, and
+  anyone who replied to you.
+* **Before texting a homeowner** from a skip-traced list, check the number against the
+  National Do Not Call Registry (telemarketing.donotcall.gov). Never text anyone who said stop.
+* If you outgrow texting by hand, use a provider built for business texting (one that registers
+  your number for business messaging, called "10DLC") and only text people who opted in.

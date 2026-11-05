@@ -11,15 +11,26 @@ Pipeline:
     send    -> send those drafts (dry run unless you pass --confirm)
     followup -> write a polite follow-up for deals with no reply after a few days
     blast   -> once a house is under contract, email the cash buyers who match it
+    records -> off-market leads, cash buyers and mail letters from NJ property records
     setup   -> answer a few questions once to create config.json
+    demo    -> a full practice deal on sample data:  python3 dealfinder.py demo --demo
     dashboard -> open a page in your browser to track every deal
 
 Standard library only. Python 3.9+.
 """
 import argparse
+import os
+import sys
+
+if "--demo" in sys.argv:  # keep the practice run away from your real data
+    sys.argv.remove("--demo")
+    os.environ["DEALFINDER_DATA"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_demo")
+
+import records  # noqa: E402  (reads DEALFINDER_DATA)
 import csv
 import contextlib
 import getpass
+import hmac
 import http.server
 import io
 import threading
@@ -37,7 +48,7 @@ from datetime import datetime
 from email.message import EmailMessage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(HERE, "data")
+DATA = os.environ.get("DEALFINDER_DATA") or os.path.join(HERE, "data")
 RAW = os.path.join(DATA, "raw_listings.json")
 DEALS = os.path.join(DATA, "deals.csv")
 OUTBOX = os.path.join(DATA, "outbox")
@@ -169,21 +180,51 @@ def contract_price(deal):
     return num(deal.get("offer")) or num(deal.get("price")) or 0
 
 
+def in_buy_box(deal, b):
+    """Does this house fit a buyer's area and property type? (blank means 'any')"""
+    zips = [z.strip() for z in (b.get("zips") or "").replace(";", ",").split(",") if z.strip()]
+    types = (b.get("property_types") or "").lower()
+    if zips and str(deal.get("zip", ""))[:5] not in zips:
+        return False
+    return not (types and deal.get("property_type") and deal["property_type"].lower() not in types)
+
+
 def matching_buyers(deal, buyers):
     """Buyers whose ZIPs and max price fit this deal (blank means 'any')."""
     out = []
     for b in buyers:
-        zips = [z.strip() for z in (b.get("zips") or "").replace(";", ",").split(",") if z.strip()]
-        types = (b.get("property_types") or "").lower()
-        if zips and str(deal.get("zip", ""))[:5] not in zips:
+        if not in_buy_box(deal, b):
             continue
         if num(b.get("max_price")) and contract_price(deal) + (num(deal.get("assignment_fee")) or 0) > num(b["max_price"]):
-            continue
-        if types and deal.get("property_type") and deal["property_type"].lower() not in types:
             continue
         if b.get("email"):
             out.append(b)
     return out
+
+
+def suggested_offer(deal, buyers, cfg):
+    """What to offer on a listed house and how it was worked out, rounded down to $1,000.
+    Uses, in order: your own number, your ARV and repairs, the best matching buyer's max
+    price, or a percent of the list price."""
+    if num(deal.get("offer")):
+        return int(num(deal["offer"])), "the offer saved on this house"
+    fee = num(deal.get("assignment_fee")) or num(cfg.get("target_fee")) or 10000
+    price = num(deal.get("price")) or 0
+    if num(deal.get("arv")):
+        pct = cfg.get("mao_percent") or 0.70
+        o = num(deal["arv"]) * pct - (num(deal.get("repairs")) or 0) - fee
+        why = f"{round(pct * 100)}% of ARV, minus repairs and your ${fee:,.0f} fee"
+    else:
+        tops = [num(b.get("max_price")) for b in buyers if in_buy_box(deal, b) and num(b.get("max_price"))]
+        if tops:
+            o, why = max(tops) - fee, f"top matching buyer pays up to ${max(tops):,.0f}, minus your ${fee:,.0f} fee"
+        else:
+            pct = cfg.get("offer_percent_of_list") or 0.75
+            o, why = price * pct, f"{round(pct * 100)}% of list price (add ARV or buyers for a sharper number)"
+    if price:
+        o = min(o, price * 0.97)  # an offer at asking leaves no room for a fee
+    o = int(o // 1000 * 1000)
+    return (o, why) if o > 0 else (None, why)
 
 
 def write_draft(kind, to, address, subject, body, suffix=""):
@@ -374,12 +415,16 @@ def cmd_score(args):
     out.sort(key=lambda d: d["score"], reverse=True)
     if args.top:
         out = out[: args.top]
+    # keep deals that didn't come from listings (off-market leads you added)
+    listed = {d["address"].lower() for d in out}
+    out += [d for d in previous.values() if d["address"].lower() not in listed and d.get("contact_role") == "owner"
+            and d["address"].lower() not in {r["address"].lower() for r in raw}]
     write_deals(out)
 
     print(f"Ranked {len(out)} properties -> {DEALS}\n")
     print(f"{'#':>3} {'score':>6} {'price':>10} {'$/sf':>5} {'vs area':>8} {'cut':>6} {'DOM':>4}  address")
     for i, d in enumerate(out[:15], 1):
-        print(f"{i:>3} {d['score']:>6} {d['price']:>10,} {str(d['price_per_sqft']):>5} "
+        print(f"{i:>3} {d['score']:>6} {int(num(d['price']) or 0):>10,} {str(d['price_per_sqft']):>5} "
               f"{d['discount_vs_area_pct']:>7}% {d['price_cut_pct']:>5}% {d['days_on_market']:>4}  {d['address']}")
     print("\nNext: open data/deals.csv, change `status` to `approved` for the ones you want "
           "to reach out on (or `skip`), then run `draft`.")
@@ -475,7 +520,7 @@ def cmd_draft(args):
         if not email:
             print(f"  skip (no email): {d['address']}")
             continue
-        if email in dnc or (email, d["address"].lower(), "intro") in sent:
+        if email in dnc or any((email, d["address"].lower(), k) in sent for k in ("intro", "offer")):
             print(f"  skip (do-not-contact or already emailed): {d['address']}")
             continue
         subject, body = build_email(d, cfg, rng)
@@ -484,6 +529,83 @@ def cmd_draft(args):
         print(f"\n===== {d['address']}  ->  {email}\nSubject: {subject}\n\n{body}")
     print(f"\n{made} email(s) written. Review and edit them, then send "
           "(Send button in the dashboard, or `send` then `send --confirm`).")
+
+
+# ---------------------------------------------------------------- offers to listing agents
+OFFER_SUBJECTS = ["Cash offer on {street}", "Offer for {street}", "{street}: cash offer, as-is"]
+OFFER_OPENERS = [
+    "I'd like to make a cash offer on your listing at {street}.",
+    "I'm interested in {street} and want to put a cash offer in front of your seller.",
+    "Reaching out with a cash offer on {street}.",
+]
+
+
+def build_offer_email(deal, offer, cfg, rng):
+    street = deal["address"].split(",")[0].strip()
+    first = (deal["contact_name"] or "there").split()[0].title()
+    earnest = num(cfg.get("offer_earnest_money")) or 1000
+    terms = [f"Price: ${offer:,.0f}, cash",
+             "As-is: no repairs or credits asked",
+             f"Close in {cfg.get('offer_close_days', 30)} days or sooner, at a title company of the seller's choice",
+             f"{cfg.get('offer_inspection_days', 10)}-day inspection period",
+             f"Earnest money deposit: ${earnest:,.0f}"]
+    # Be upfront about assigning: it keeps you honest with the agent and seller.
+    body = (f"Hi {first},\n\n" + rng.choice(OFFER_OPENERS).format(street=street) + "\n\n"
+            + "\n".join("  - " + t for t in terms) +
+            "\n\nTo be upfront: I'm a real estate investor, and I may assign this contract to another cash "
+            "buyer before closing. I'll put that in writing in the offer, and the seller's price and terms "
+            "stay the same either way.\n\n"
+            "If the number works or is close, I can send it over on your offer form today. If it doesn't, "
+            "is there a price the seller would take?\n\n"
+            + rng.choice(CLOSERS).format(you=cfg["your_name"]) + "\n"
+            + "\n".join(filter(None, [cfg.get("your_company"), cfg.get("your_phone"), cfg.get("your_email")])))
+    sender = cfg.get("your_company") or cfg["your_name"]
+    body += (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
+             "If you'd rather not hear from me, just reply \"remove\" and I won't contact you again.")
+    return rng.choice(OFFER_SUBJECTS).format(street=street), body
+
+
+def cmd_offers(args):
+    """Write cash-offer emails to listing agents for the best listed houses (you review before sending)."""
+    cfg = load_config()
+    deals, buyers = read_deals(), read_buyers()
+    dnc, sent = do_not_contact(), already_sent()
+    rng, made, now = random.Random(), 0, datetime.now().isoformat(timespec="seconds")
+    for d in deals:  # already ranked best first
+        if made >= (args.top or 25):
+            break
+        email = (d.get("contact_email") or "").strip().lower()
+        if d["status"] not in ("pending", "approved") or "owner" in (d.get("contact_role") or "").lower():
+            continue
+        if not email or email in dnc or any((email, d["address"].lower(), k) in sent for k in ("offer", "intro")):
+            continue
+        slug = "".join(c if c.isalnum() else "_" for c in d["address"])[:60]
+        if os.path.exists(os.path.join(OUTBOX, slug + ".json")):
+            continue  # an offer is already waiting for you to review
+        offer, why = suggested_offer(d, buyers, cfg)
+        if not offer:
+            continue
+        subject, body = build_offer_email(d, offer, cfg, rng)
+        write_draft("offer", email, d["address"], subject, body)
+        if not num(d.get("offer")):
+            d["offer"] = offer
+        d["status"], d["updated"] = "approved", now
+        made += 1
+        price = num(d.get("price")) or 0
+        pct = f" ({offer / price:.0%} of ${price:,.0f} asking)" if price else ""
+        print(f"  ${offer:,.0f}{pct} -> {email}  {d['address']}\n      why: {why}")
+    write_deals(deals)
+    print(f"\n{made} offer email(s) written. Read each one, then press Send. "
+          "Offers that get a 'yes' or a counter: move to Negotiating and sign a real contract "
+          "with an assignment clause before you market it to buyers.")
+
+
+FOLLOWUPS_OFFER = [
+    "Hi {first},\n\nFollowing up on my cash offer for {street}. Did the seller have a chance to look at it? "
+    "If the price is the issue, I'm open to hearing a counter.",
+    "Hi {first},\n\nChecking back on {street}. My cash offer still stands if the seller wants a quick, "
+    "as-is close. Thanks either way!",
+]
 
 
 FOLLOWUPS = [
@@ -508,7 +630,7 @@ def cmd_followup(args):
             continue
         email = d["contact_email"].strip().lower()
         mine = [r for r in sent if r["address"].lower() == d["address"].lower() and r["email"].lower() == email
-                and (r["kind"] == "intro" or r["kind"].startswith("followup"))]
+                and (r["kind"] in ("intro", "offer") or r["kind"].startswith("followup"))]
         if not mine or email in dnc:
             continue
         done = len([r for r in mine if r["kind"].startswith("followup")])
@@ -518,7 +640,8 @@ def cmd_followup(args):
         street = d["address"].split(",")[0].strip()
         first = (d["contact_name"] or "there").split()[0].title()
         kind = f"followup{done + 1}"
-        body = FOLLOWUPS[min(done, len(FOLLOWUPS) - 1)].format(first=first, street=street)
+        texts = FOLLOWUPS_OFFER if any(r["kind"] == "offer" for r in mine) else FOLLOWUPS
+        body = texts[min(done, len(texts) - 1)].format(first=first, street=street)
         body += f"\n\n{cfg['your_name']}\n" + "\n".join(filter(None, [cfg.get("your_phone"), cfg.get("your_email")]))
         sender = cfg.get("your_company") or cfg["your_name"]
         body += (f"\n\n--\n{sender} | {cfg['mailing_address']}\n"
@@ -619,7 +742,7 @@ def cmd_send(args):
             time.sleep(random.uniform(cfg["min_seconds_between_emails"], cfg["max_seconds_between_emails"]))
     server.quit()
     # move the deals you just emailed to the "emailed" stage
-    sent_addrs = {m["address"].lower() for _, m in todo if m["kind"] == "intro"}
+    sent_addrs = {m["address"].lower() for _, m in todo if m["kind"] in ("intro", "offer")}
     deals = read_deals() if os.path.exists(DEALS) else []
     for d in deals:
         if d["address"].lower() in sent_addrs and d["status"] == "approved":
@@ -678,9 +801,19 @@ def dashboard_state():
     buyers = read_buyers()
     for d in deals:
         d["buyer_matches"] = len(matching_buyers(d, buyers))
+        if "owner" not in (d.get("contact_role") or "").lower():
+            d["suggested_offer"], d["offer_why"] = suggested_offer(d, buyers, cfg)
     settings = {"mao_percent": cfg.get("mao_percent", 0.70), "target_fee": cfg.get("target_fee", 10000),
                 "followup_after_days": cfg.get("followup_after_days", 5)}
-    return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings, "drafts_waiting": len(drafts),
+    in_pipeline = {d["address"].lower() for d in deals}
+    leads = [dict(l, in_pipeline=f"{l['address']}, {l['town']}".lower() in in_pipeline)
+             for l in records.build_leads(150)] if os.path.exists(records.RECORDS) else []
+    known = {(b.get("name") or "").lower() for b in buyers}
+    buyer_leads = [dict(b, added=b["name"].lower() in known)
+                   for b in records.find_buyers()[:60]] if os.path.exists(records.RECORDS) else []
+    return {"deals": deals, "sent": sent, "drafts": drafts, "buyers": buyers, "settings": settings,
+            "leads": leads, "buyer_leads": buyer_leads,
+            "leads_total": len(records.build_leads()) if os.path.exists(records.RECORDS) else 0, "records_count": len(records.load_records()), "drafts_waiting": len(drafts),
             "do_not_contact": sorted(do_not_contact()), "stages": STAGES, "job": JOB,
             "setup": {"config": has_cfg,
                       "rentcast": is_set(cfg, "rentcast_api_key"),
@@ -709,26 +842,57 @@ def run_job(name, func, args):
     threading.Thread(target=work, daemon=True).start()
 
 
+PHONE_PIN = None  # set by `dashboard --phone`; then every request needs the PIN
+PIN_PAGE = b"""<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Deal Tracker</title><body style="font-family:system-ui;max-width:320px;margin:15vh auto;padding:0 16px">
+<h2>Deal Tracker</h2><p>Enter the PIN shown on your computer.</p>
+<form method=get action="/"><input name=pin inputmode=numeric autocomplete=off autofocus
+style="font-size:24px;width:100%;padding:8px;box-sizing:border-box"><button
+style="font-size:18px;margin-top:12px;width:100%;padding:10px">Open</button></form>"""
+
+
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", extra=()):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for k, v in extra:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
+    def _pin_ok(self):
+        if not PHONE_PIN:
+            return True
+        cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+        return hmac.compare_digest(cookies.get("dt_pin", ""), PHONE_PIN)
+
     def do_GET(self):
+        if PHONE_PIN and not self._pin_ok():
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if hmac.compare_digest((q.get("pin") or [""])[0].strip(), PHONE_PIN):
+                return self._send(303, b"", "text/plain", [
+                    ("Location", "/"), ("Set-Cookie", f"dt_pin={PHONE_PIN}; HttpOnly; SameSite=Strict; Path=/")])
+            time.sleep(1)  # slow down PIN guessing
+            return self._send(401, PIN_PAGE, "text/html; charset=utf-8")
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "dashboard.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
+        if self.path.startswith("/letters"):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            kind = "buyer" if q.get("kind") == ["buyer"] else "seller"
+            top = int((q.get("top") or ["50"])[0])
+            items = records.build_leads() if kind == "seller" else records.find_buyers()
+            items = [i for i in items if i.get("mail_street")][:top]
+            return self._send(200, records.render_letters(items, kind, load_config()).encode(), "text/html; charset=utf-8")
         if self.path == "/api/state":
             return self._send(200, dashboard_state())
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
         # only accept requests from this page, not from other websites
-        if self.headers.get("X-Dashboard") != "1":
+        if self.headers.get("X-Dashboard") != "1" or not self._pin_ok():
             return self._send(403, {"error": "forbidden"})
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
@@ -771,6 +935,21 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         argparse.Namespace(csv=path, role=body.get("role") or "listing agent"))
             elif action == "draft":
                 run_job("Writing emails", cmd_draft, argparse.Namespace())
+            elif action == "offers":
+                run_job("Writing offers to agents", cmd_offers, argparse.Namespace(top=int(body.get("top") or 25)))
+            elif action == "records_import":
+                path = os.path.join(DATA, "records_upload.csv")
+                os.makedirs(DATA, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(body.get("csv", ""))
+                if body.get("tag"):
+                    run_job("Tagging properties", records.cmd_flag, argparse.Namespace(csv=path, tag=body["tag"]))
+                else:
+                    run_job("Loading property records", records.cmd_import,
+                            argparse.Namespace(csv=path, town=body.get("town"), county=body.get("county")))
+            elif action == "records_pull":
+                run_job("Downloading county records", records.cmd_pull,
+                        argparse.Namespace(county=body.get("county") or "UNION", towns=body.get("towns") or None))
             elif action == "followup":
                 run_job("Writing follow-ups", cmd_followup, argparse.Namespace(days=None))
             elif action == "blast":
@@ -809,6 +988,37 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 buyers.append(row)
             write_buyers(buyers)
             return self._send(200, {"ok": True})
+        if self.path == "/api/lead/add":
+            lead = next((l for l in records.build_leads() if l["address"] == body.get("address")
+                         and l["town"] == body.get("town")), None)
+            if not lead:
+                return self._send(404, {"error": "lead not found"})
+            deals = read_deals() if os.path.exists(DEALS) else []
+            full = f"{lead['address']}, {lead['town']}".strip(", ")
+            if full.lower() not in {d["address"].lower() for d in deals}:
+                deals.append({
+                    "status": "pending", "score": lead["score"], "address": full,
+                    "zip": str(lead.get("mail_zip", ""))[:5] if lead.get("mail_street", "").upper() == lead["address"].upper() else "",
+                    "price": "", "beds": "", "baths": "", "sqft": "", "days_on_market": "",
+                    "property_type": "Off-market", "motivation_flags": lead["flags"],
+                    "contact_name": lead["owner"] or "Current Owner", "contact_role": "owner",
+                    "notes": f"Mail to: {lead['mail_street']}, {lead['mail_city_state']} {lead['mail_zip']}",
+                    "updated": datetime.now().isoformat(timespec="seconds"),
+                })
+                write_deals(deals)
+            return self._send(200, {"ok": True})
+        if self.path == "/api/buyerlead/add":
+            b = next((x for x in records.find_buyers() if x["name"] == body.get("name")), None)
+            if not b:
+                return self._send(404, {"error": "not found"})
+            buyers = [x for x in read_buyers() if (x.get("name") or "").lower() != b["name"].lower()]
+            buyers.append({"name": b["name"], "email": "", "phone": "", "zips": "", "max_price": "",
+                           "notes": f"From records: {b['purchases']} buys, {b['flips']} flips, "
+                                    f"${b['min_price']:,}-${b['max_price']:,} in {b['towns']}. "
+                                    f"Mail: {b['mail_street']}, {b['mail_city_state']} {b['mail_zip']}",
+                           "added": datetime.now().date().isoformat()})
+            write_buyers(buyers)
+            return self._send(200, {"ok": True})
         if self.path == "/api/buyers/starter":
             have = {(b.get("name") or "").lower() for b in read_buyers()}
             with open(os.path.join(HERE, "starter_buyers.csv"), newline="") as f:
@@ -831,16 +1041,188 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def lan_ip():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))  # picks the Wi-Fi address; sends nothing
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
 def cmd_dashboard(args):
+    global PHONE_PIN
     url = f"http://127.0.0.1:{args.port}/"
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), DashboardHandler)
+    host = "127.0.0.1"
+    if args.phone:
+        import secrets
+        PHONE_PIN = f"{secrets.randbelow(10**6):06d}"
+        host = "0.0.0.0"
+    server = http.server.ThreadingHTTPServer((host, args.port), DashboardHandler)
     print(f"Dashboard running at {url}  (Ctrl+C to stop)")
+    if args.phone:
+        ip = lan_ip() or "<this computer's Wi-Fi address>"
+        print(f"\n  On your phone (same Wi-Fi), open:  http://{ip}:{args.port}/")
+        print(f"  PIN: {PHONE_PIN}   (new PIN each time you start; don't use this on public Wi-Fi)\n")
+        url += f"?pin={PHONE_PIN}"
     if not args.no_browser:
         webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+
+
+# ---------------------------------------------------------------- demo
+def fake_send(when):
+    """Stand-in for `send` in the demo: logs the drafts as sent on a given date, sends nothing."""
+    n = 0
+    for name in sorted(os.listdir(OUTBOX)) if os.path.isdir(OUTBOX) else []:
+        if not name.endswith(".json"):
+            continue
+        with open(os.path.join(OUTBOX, name)) as f:
+            m = json.load(f)
+        append_sent({"sent_at": when.isoformat(timespec="seconds"), "email": m["to"], "address": m["address"],
+                     "subject": m["subject"], "kind": m.get("kind", "intro")})
+        os.rename(os.path.join(OUTBOX, name), os.path.join(OUTBOX, name + ".sent"))
+        n += 1
+    deals = read_deals()
+    sent = {r["address"].lower() for r in read_sent() if r["kind"] == "intro"}
+    for d in deals:
+        if d["status"] == "approved" and d["address"].lower() in sent:
+            d["status"] = "emailed"
+    write_deals(deals)
+    return n
+
+
+def set_deal(address, **fields):
+    deals = read_deals()
+    for d in deals:
+        if d["address"] == address:
+            d.update({k: str(v) for k, v in fields.items()})
+            d["updated"] = datetime.now().isoformat(timespec="seconds")
+    write_deals(deals)
+
+
+def cmd_demo(args):
+    """A full wholesale deal, start to finish, on made-up sample data. Sends nothing."""
+    import shutil
+    from datetime import timedelta
+    if os.path.basename(DATA) != "data_demo":
+        sys.exit("Run it as: python3 dealfinder.py demo --demo")
+    if os.path.isdir(DATA):
+        shutil.rmtree(DATA)
+    os.makedirs(DATA)
+    with open(os.path.join(HERE, "config.example.json")) as f:
+        cfg = json.load(f)
+    if os.path.exists(os.path.join(HERE, "config.json")):
+        with open(os.path.join(HERE, "config.json")) as f:
+            cfg.update(json.load(f))
+    global load_config
+    real_load = load_config
+    load_config = lambda: cfg  # noqa: E731  the demo never needs your keys
+    records_cfg = cfg
+    quiet = io.StringIO()
+    sample = os.path.join(HERE, "sample_data")
+    now = datetime.now()
+    say = lambda t: print(t, flush=True)  # noqa: E731
+
+    def step(n, title):
+        say(f"\n{'=' * 64}\nSTEP {n}: {title}\n{'=' * 64}")
+
+    try:
+        step(1, "Find houses for sale and rank them")
+        with contextlib.redirect_stdout(quiet):
+            cmd_import(argparse.Namespace(csv=os.path.join(sample, "sample_listings.csv"), role="listing agent"))
+            cmd_score(argparse.Namespace(max_price=None, top=None))
+        for d in read_deals()[:3]:
+            say(f"  score {d['score']:>6}  ${int(num(d['price'])):,}  {d['discount_vs_area_pct']}% under area, "
+                f"{d['days_on_market']} days  {d['address']}  [{d['motivation_flags']}]")
+
+        step(2, "Find off-market owners and cash buyers in public records")
+        with contextlib.redirect_stdout(quiet):
+            records.cmd_import(argparse.Namespace(csv=os.path.join(sample, "sample_tax_list.csv"), town=None, county=None))
+            records.cmd_flag(argparse.Namespace(csv=os.path.join(sample, "sample_sheriff_sales.csv"), tag="pre-foreclosure"))
+        leads, rbuyers = records.build_leads(), records.find_buyers()
+        for l in leads[:3]:
+            say(f"  lead  {l['score']:>5}  {l['address']}, {l['town']}  {l['owner']}  [{l['flags']}]")
+        for b in rbuyers:
+            say(f"  buyer {b['name']}: {b['purchases']} buys, {b['flips']} flips, ${b['min_price']:,}-${b['max_price']:,}")
+
+        step(3, "Build the cash-buyer list")
+        write_buyers([
+            {"name": "Ana Investor (sample)", "email": "ana.example@example.com", "zips": "78210, 78211",
+             "max_price": "190000", "notes": "flips; met at investor meetup", "added": now.date().isoformat()},
+            {"name": "Bright Door Properties LLC", "email": "deals.example@example.com", "zips": "",
+             "max_price": "200000", "notes": "found in records: repeat buyer + flip", "added": now.date().isoformat()},
+        ])
+        say("  2 buyers on the list (one from a meetup, one found in the records)")
+        n = records.write_letters("seller", 25, records_cfg)
+        say(f"  {n} letters printed for off-market owners -> {records.LETTERS}")
+
+        step(4, "Approve the best houses and email the listing agents")
+        top = read_deals()[:2]
+        for d in top:
+            set_deal(d["address"], status="approved")
+        with contextlib.redirect_stdout(quiet):
+            cmd_draft(argparse.Namespace())
+        sent = fake_send(now - timedelta(days=6))
+        say(f"  {sent} first emails sent (simulated, dated 6 days ago):")
+        for r in read_sent():
+            say(f"    -> {r['email']}  \"{r['subject']}\"")
+
+        step(5, "No reply after 5 days: polite follow-ups")
+        with contextlib.redirect_stdout(quiet):
+            cmd_followup(argparse.Namespace(days=None))
+        sent = fake_send(now - timedelta(days=1))
+        say(f"  {sent} follow-up(s) sent (simulated)")
+
+        deal = top[0]["address"]
+        step(6, f"The agent for {deal.split(',')[0]} replies: seller wants out. Run the numbers")
+        arv, repairs, fee = 265000, 40000, 10000
+        mao = arv * cfg.get("mao_percent", 0.70) - repairs
+        offer = int((mao - fee) // 1000 * 1000)
+        set_deal(deal, status="negotiating", arv=arv, repairs=repairs, assignment_fee=fee, offer=offer,
+                 notes="Agent: seller inherited it, lives out of state, wants a quick close")
+        say(f"  After-repair value ${arv:,}, repairs ${repairs:,}")
+        say(f"  Buyer's max (70% rule): ${arv:,} x 0.70 - ${repairs:,} = ${mao:,.0f}")
+        say(f"  Your offer to the seller, keeping a ${fee:,} fee: ${offer:,} (asking ${int(num(top[0]['price'])):,})")
+
+        step(7, "Seller accepts: house under contract. Email matching cash buyers")
+        set_deal(deal, status="under_contract")
+        d = next(x for x in read_deals() if x["address"] == deal)
+        matches = matching_buyers(d, read_buyers())
+        say(f"  {len(matches)} of {len(read_buyers())} buyers match (ZIP + max price): "
+            + ", ".join(b["name"] for b in matches))
+        with contextlib.redirect_stdout(quiet):
+            cmd_blast(argparse.Namespace(address=deal))
+        draft = next(json.load(open(os.path.join(OUTBOX, f))) for f in os.listdir(OUTBOX) if f.endswith(".json"))
+        say("  Email to buyer:\n    " + draft["body"].split("\n\n--")[0].replace("\n", "\n    "))
+        fake_send(now)
+
+        step(8, "A buyer takes the contract. Close and get paid")
+        set_deal(deal, status="closed", notes="Assigned to Ana Investor (sample). Closed with title company.")
+        state = dashboard_state()
+        earned = sum(num(x.get("assignment_fee")) or 0 for x in state["deals"] if x["status"] == "closed")
+        say(f"  Contract price ${offer:,} + your fee ${fee:,} = buyer pays ${offer + fee:,}")
+        say(f"  Buyer's max was ${mao:,.0f}, so the buyer still has ${mao - offer - fee:,.0f} of room.")
+
+        step(9, "Scoreboard")
+        stages = {}
+        for x in state["deals"]:
+            stages[x["status"]] = stages.get(x["status"], 0) + 1
+        say(f"  Properties found:  {len(state['deals'])} listed + {len(leads)} off-market leads")
+        say(f"  Emails sent:       {len(state['sent'])}  (first emails, follow-ups, buyer emails)")
+        say(f"  Cash buyers:       {len(state['buyers'])}")
+        say(f"  Pipeline:          " + ", ".join(f"{k} {v}" for k, v in stages.items()))
+        say(f"  Fees earned:       ${earned:,.0f}")
+        say("\nThis was a practice run on made-up data. Nothing was emailed or mailed.")
+        say("See it in the dashboard:  python3 dealfinder.py dashboard --demo")
+    finally:
+        load_config = real_load
 
 
 # ---------------------------------------------------------------- cli
@@ -868,6 +1250,9 @@ def main():
     s.set_defaults(func=cmd_score)
 
     sub.add_parser("draft", help="write emails for approved deals").set_defaults(func=cmd_draft)
+    of = sub.add_parser("offers", help="write cash-offer emails to listing agents for the top listed houses")
+    of.add_argument("--top", type=int, default=25, help="how many offers to write (default 25)")
+    of.set_defaults(func=cmd_offers)
 
     fu = sub.add_parser("followup", help="write follow-ups for emailed deals with no reply")
     fu.add_argument("--days", type=int, help="wait this many days after the last email (default 5)")
@@ -877,15 +1262,47 @@ def main():
     bl.add_argument("address", help="the deal's address, exactly as in deals.csv")
     bl.set_defaults(func=cmd_blast)
 
+    rc = sub.add_parser("records", help="off-market leads and cash buyers from NJ property records")
+    rsub = rc.add_subparsers(dest="rcmd", required=True)
+    ri = rsub.add_parser("import", help="load a tax list or sales CSV")
+    ri.add_argument("csv")
+    ri.add_argument("--town")
+    ri.add_argument("--county")
+    ri.set_defaults(func=records.cmd_import)
+    rp = rsub.add_parser("pull", help="download a county's tax list from NJ's public parcel service")
+    rp.add_argument("--county", default="UNION")
+    rp.add_argument("--towns", help="optional, comma separated, e.g. Elizabeth,Linden,Plainfield")
+    rp.set_defaults(func=records.cmd_pull)
+    rl = rsub.add_parser("leads", help="rank owners most likely to sell")
+    rl.add_argument("--top", type=int)
+    rl.add_argument("--town")
+    rl.set_defaults(func=records.cmd_leads)
+    rb = rsub.add_parser("buyers", help="find companies that keep buying (cash buyers)")
+    rb.add_argument("--months", type=int, default=36)
+    rb.add_argument("--min-buys", type=int, default=2)
+    rb.set_defaults(func=records.cmd_buyers)
+    rf = rsub.add_parser("flag", help="tag properties on a list, e.g. sheriff sales")
+    rf.add_argument("csv")
+    rf.add_argument("--tag", default="pre-foreclosure")
+    rf.set_defaults(func=records.cmd_flag)
+    rt = rsub.add_parser("letters", help="printable letters + mailing list")
+    rt.add_argument("--kind", choices=["seller", "buyer"], default="seller")
+    rt.add_argument("--top", type=int, default=50)
+    rt.add_argument("--town")
+    rt.set_defaults(func=lambda a: records.cmd_letters(a, load_config()))
+
     se = sub.add_parser("send", help="send drafts (dry run unless --confirm)")
     se.add_argument("--confirm", action="store_true")
     se.set_defaults(func=cmd_send)
+
+    sub.add_parser("demo", help="practice run of a full deal on sample data (use with --demo)").set_defaults(func=cmd_demo)
 
     sub.add_parser("setup", help="answer a few questions to create config.json").set_defaults(func=cmd_setup)
 
     db = sub.add_parser("dashboard", help="open the tracking dashboard in your browser")
     db.add_argument("--port", type=int, default=8765)
     db.add_argument("--no-browser", action="store_true")
+    db.add_argument("--phone", action="store_true", help="let your phone open it over your home Wi-Fi (asks for a PIN)")
     db.set_defaults(func=cmd_dashboard)
 
     args = p.parse_args()
