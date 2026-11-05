@@ -48,6 +48,43 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
 .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
+/* factory floor */
+.factory { padding: 14px; overflow-x: auto; }
+.line { display: flex; align-items: stretch; gap: 0; min-width: 900px; }
+.grid > * { min-width: 0; }
+.station { flex: 1 1 0; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 8px; text-align: center; cursor: pointer; position: relative; transition: border-color .15s, transform .15s; }
+.station:hover, .station.on { border-color: var(--accent); transform: translateY(-2px); }
+.station .n { font-size: clamp(15px, 1.7vw, 22px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; font-variant-numeric: tabular-nums; }
+.station .t { font-size: 11px; color: var(--muted); line-height: 1.25; }
+.station .ic { font-size: 18px; line-height: 1; margin-bottom: 4px; }
+.station .light { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.station .light.go { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+.station .light.wait { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent); }
+.station.money .n { color: var(--good); }
+.belt { width: 18px; flex: none; align-self: center; height: 6px; border-radius: 3px;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 12px); opacity: .55;
+  background-size: 12px 6px; animation: belt 0.9s linear infinite; }
+@keyframes belt { to { background-position: 12px 0; } }
+@media (prefers-reduced-motion: reduce) { .belt { animation: none; } }
+.factory-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 10px; }
+.factory-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.factory-legend .g::before { background: var(--good); } .factory-legend .w::before { background: var(--warn); } .factory-legend .i::before { background: var(--line); }
+/* board */
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 10px; padding: 12px 14px; overflow-x: auto; }
+.col { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; min-height: 140px; display: flex; flex-direction: column; }
+.col h3 { margin: 0; padding: 8px 10px; font-size: 12px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.col.over { border-color: var(--accent); background: var(--accent-soft); }
+.col .cards { padding: 8px; display: grid; gap: 6px; align-content: start; flex: 1; }
+.card2 { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font-size: 12px; cursor: grab; }
+.card2:active { cursor: grabbing; }
+.card2 .a { font-weight: 600; }
+.card2 .m { color: var(--muted); font-size: 11px; }
+.more { font-size: 11px; color: var(--muted); text-align: center; }
+.log { max-height: 320px; overflow: auto; }
+.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.txt { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; text-decoration: none; color: var(--accent); }
 .pill.hot { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
 .score { font-weight: 650; font-variant-numeric: tabular-nums; }
 .fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
@@ -123,6 +160,21 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 16px 40px; }
 <main>
   <div id="banner"></div>
   <section class="kpis" id="kpis"></section>
+  <section class="card" style="margin-bottom:16px">
+    <h2 style="display:flex;justify-content:space-between;align-items:center"><span>Factory floor</span>
+      <span class="sub">Click any station to see what's in it</span></h2>
+    <div class="factory">
+      <div class="line" id="line"></div>
+      <div class="factory-legend"><span class="g">moving</span><span class="w">needs you</span><span class="i">empty</span></div>
+    </div>
+  </section>
+  <div class="grid" style="margin-bottom:16px">
+    <section class="card">
+      <h2>Deal board <span class="sub">drag a card to move it to the next stage</span></h2>
+      <div class="board" id="board"></div>
+    </section>
+    <section class="card"><h2>Factory log</h2><ul class="list log" id="log"></ul></section>
+  </div>
   <div id="job"></div>
   <section class="actions">
     <div class="card">
@@ -311,13 +363,88 @@ function updateCalc(address) {
   if (d && el) el.querySelector("[data-calc]").innerHTML = calcText(d);
 }
 
+const STATION_ICON = { records: "🗂️", leads: "🎯", pending: "📥", approved: "✅", emailed: "✉️", replied: "💬",
+  negotiating: "🤝", under_contract: "📝", buyers: "👥", closed: "💰" };
+
+function smsLink(phone, body) {
+  const digits = String(phone || "").replace(/[^0-9+]/g, "");
+  if (digits.length < 10) return "";
+  // "?&body=" works on both iPhone and Android; opens your phone / Google Voice with the text ready
+  return `<a class="txt" href="sms:${digits}?&body=${encodeURIComponent(body)}" title="Opens your texting app with this message ready. You press send.">Text</a>`;
+}
+
+function sellerText(d) {
+  const first = (d.contact_name || "").split(" ")[0] || "there";
+  const street = d.address.split(",")[0];
+  return d.contact_role === "owner"
+    ? `Hi ${first}, this is John Ruiz, a local real estate investor. Would you consider an as-is cash offer on ${street}? No pressure. Reply STOP and I won't text again.`
+    : `Hi ${first}, John Ruiz here, a local real estate wholesaler. Is ${street} still available? Would the seller consider a cash offer, as-is, quick close? Reply STOP to opt out.`;
+}
+
+function buyerText(b) {
+  return `Hi ${(b.name || "").split(" ")[0] || "there"}, John Ruiz here. I'm a wholesaler in Union County building my buyers list. What towns and price range are you buying in? Reply STOP to opt out.`;
+}
+
+function factory() {
+  const d = state.deals, by = s => d.filter(x => x.status === s).length;
+  const fees = d.filter(x => x.status === "closed").reduce((a, x) => a + num(x.assignment_fee), 0);
+  const followDue = followupCount();
+  const contract = d.filter(x => x.status === "under_contract");
+  const matched = contract.reduce((a, x) => a + num(x.buyer_matches), 0);
+  const st = [
+    ["records", "Records loaded", (state.records_count || 0).toLocaleString(), state.records_count ? "go" : "", "rec"],
+    ["leads", "Off-market leads", (state.leads || []).length, (state.leads || []).length ? "go" : "", "rec"],
+    ["pending", "New deals", by("pending"), by("pending") ? "wait" : "", "pending"],
+    ["approved", "Approved", by("approved"), by("approved") ? "wait" : "", "approved"],
+    ["emailed", "Contacted", by("emailed"), followDue ? "wait" : by("emailed") ? "go" : "", "emailed"],
+    ["replied", "Replied", by("replied"), by("replied") ? "wait" : "", "replied"],
+    ["negotiating", "Negotiating", by("negotiating"), by("negotiating") ? "go" : "", "negotiating"],
+    ["under_contract", "Under contract", by("under_contract"), contract.length ? (matched ? "go" : "wait") : "", "under_contract"],
+    ["buyers", "Cash buyers", (state.buyers || []).length, (state.buyers || []).length ? "go" : "wait", "buyers"],
+    ["closed", `Closed ${by("closed")} · fees`, fees ? (fees >= 1e6 ? "$" + (fees / 1e6).toFixed(1) + "M" : fees >= 1000 ? "$" + Math.round(fees / 1000) + "k" : money(fees)) : by("closed"), by("closed") ? "go" : "", "closed"],
+  ];
+  $("line").innerHTML = st.map(([k, t, n, light, go], i) =>
+    `${i ? `<div class="belt" aria-hidden="true"></div>` : ""}<div class="station ${k === "closed" ? "money" : ""} ${tab === go ? "on" : ""}" data-go="${go}" role="button" tabindex="0"
+      title="${t}"><span class="light ${light}"></span><div class="ic">${STATION_ICON[k]}</div><div class="n">${n}</div><div class="t">${t}</div></div>`).join("");
+}
+
+const BOARD = ["pending", "approved", "emailed", "replied", "negotiating", "under_contract", "closed"];
+function board() {
+  $("board").innerHTML = BOARD.map(s => {
+    const cards = state.deals.filter(d => d.status === s).sort((a, b) => num(b.score) - num(a.score));
+    return `<div class="col" data-stage="${s}"><h3><span>${STATION_ICON[s] || ""} ${LABEL[s]}</span><span>${cards.length}</span></h3>
+      <div class="cards">${cards.slice(0, 8).map(d => `<div class="card2" draggable="true" data-addr="${esc(d.address)}">
+        <div class="a">${esc(d.address.split(",")[0])}</div>
+        <div class="m">${num(d.price) ? money(num(d.price)) : "off-market"}${num(d.assignment_fee) ? ` · fee ${money(num(d.assignment_fee))}` : ""}</div></div>`).join("")}
+        ${cards.length > 8 ? `<div class="more">+${cards.length - 8} more</div>` : ""}</div></div>`;
+  }).join("");
+}
+
+function factoryLog() {
+  const ev = [];
+  state.sent.forEach(s => ev.push([s.sent_at, `${{ intro: "✉️ Emailed", buyer: "👥 Sent deal to buyer" }[s.kind] || "🔁 Followed up"} · ${s.address.split(",")[0]}`, s.email]));
+  state.deals.filter(d => d.updated).forEach(d => ev.push([d.updated, `${STATION_ICON[d.status] || "•"} ${d.address.split(",")[0]} → ${LABEL[d.status] || d.status}`, d.notes || ""]));
+  ev.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+  $("log").innerHTML = ev.length ? ev.slice(0, 40).map(([t, what, sub]) =>
+    `<li><div>${esc(what)}</div><div class="when">${esc(String(t).replace("T", " ").slice(0, 16))}${sub ? " · " + esc(sub).slice(0, 80) : ""}</div></li>`).join("")
+    : `<li class="empty">Nothing yet. Load records or find houses to start the line.</li>`;
+}
+
+function goStation(go) {
+  if (go === "rec") { document.getElementById("leads").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (go === "buyers") { document.getElementById("buyers").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  tab = go; try { localStorage.setItem("tab", tab); } catch (e) {}
+  tabs(); dealsList(); factory();
+  document.getElementById("deals").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function dealRow(d) {
   const flags = d.motivation_flags ? d.motivation_flags.split(";").map(f => `<span class="pill">${esc(f.trim())}</span>`).join("") : "";
   const hot = num(d.discount_vs_area_pct) >= 15 ? `<span class="pill hot">${d.discount_vs_area_pct}% under area</span>` : "";
   const opts = state.stages.map(s => `<option value="${s}" ${d.status === s ? "selected" : ""}>${LABEL[s] || s}</option>`).join("");
   const contact = [d.contact_name && `${esc(d.contact_name)} (${esc(d.contact_role || "contact")})`,
     d.contact_email && `<a href="mailto:${esc(d.contact_email)}">${esc(d.contact_email)}</a>`,
-    d.contact_phone && `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>`].filter(Boolean).join(" · ");
+    d.contact_phone && `<a href="tel:${esc(d.contact_phone)}">${esc(d.contact_phone)}</a>${smsLink(d.contact_phone, sellerText(d))}`].filter(Boolean).join(" · ");
   return `<div class="deal" data-addr="${esc(d.address)}">
     <div class="row1">
       <div>
@@ -473,7 +600,7 @@ function buyersBox() {
   $("buyers-n").textContent = bs.length ? `· ${bs.length}` : "";
   $("buyers").innerHTML = bs.length ? bs.map(b => `<div class="buyer" data-email="${esc(b.email)}" data-name="${esc(b.name)}">
     <div><b>${esc(b.name || b.email)}</b>
-      <div class="meta">${b.email ? esc(b.email) : "<i>no email yet</i>"}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>` : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
+      <div class="meta">${b.email ? esc(b.email) : "<i>no email yet</i>"}${b.phone ? ` · <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>${smsLink(b.phone, buyerText(b))}` : ""} · ZIPs: ${esc(b.zips || "any")} · max ${b.max_price ? money(num(b.max_price)) : "any"}${b.notes ? " · " + esc(b.notes) : ""}</div></div>
     <button class="btn danger" data-rm style="margin:0">Remove</button></div>`).join("") :
     `<div class="empty">No cash buyers yet. Every wholesale deal needs one, so start this list before you sign a contract.
       Good places to find them: recent cash sales in county records, local investor meetups, and "we buy houses" signs.
@@ -485,7 +612,7 @@ function buyersBox() {
 function render(keepList) {
   const n = state.deals.length;
   $("sub").textContent = `${n} ${n === 1 ? "property" : "properties"} · updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-  banner(); kpis(); jobBox(); draftsBox(); buyersBox(); leadsBox();
+  banner(); kpis(); factory(); board(); factoryLog(); jobBox(); draftsBox(); buyersBox(); leadsBox();
   const fc = followupCount();
   $("followup-n").textContent = fc ? `${fc} deal${fc === 1 ? "" : "s"} due for a follow-up.` : `Follow-ups go out ${num(state.settings.followup_after_days) || 5}+ days after no reply (max 2).`; tabs(); followups(); funnel(); sentList();
   const typing = document.activeElement && $("deals").contains(document.activeElement);
@@ -522,6 +649,24 @@ $("b-tag").onclick = async () => {
   run("records_import", { csv: await f.text(), tag: $("tag-name").value });
 };
 $("lead-q").addEventListener("input", leadsBox);
+$("line").addEventListener("click", e => { const s = e.target.closest(".station"); if (s) goStation(s.dataset.go); });
+$("line").addEventListener("keydown", e => { const s = e.target.closest(".station"); if (s && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); goStation(s.dataset.go); } });
+let dragAddr = null;
+$("board").addEventListener("dragstart", e => { const c = e.target.closest(".card2"); if (c) { dragAddr = c.dataset.addr; e.dataTransfer.effectAllowed = "move"; } });
+$("board").addEventListener("dragover", e => { const col = e.target.closest(".col"); if (col && dragAddr) { e.preventDefault(); col.classList.add("over"); } });
+$("board").addEventListener("dragleave", e => { const col = e.target.closest(".col"); if (col) col.classList.remove("over"); });
+$("board").addEventListener("drop", async e => {
+  const col = e.target.closest(".col"); if (!col || !dragAddr) return;
+  e.preventDefault(); col.classList.remove("over");
+  const addr = dragAddr; dragAddr = null;
+  await save(addr, { status: col.dataset.stage }); dealsList();
+});
+$("board").addEventListener("click", e => {
+  const c = e.target.closest(".card2"); if (!c) return;
+  tab = "all"; tabs(); dealsList();
+  const row = [...document.querySelectorAll(".deal")].find(r => r.dataset.addr === c.dataset.addr);
+  if (row) { row.scrollIntoView({ behavior: "smooth", block: "center" }); row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1700); }
+});
 $("leads").addEventListener("click", async e => {
   if (!e.target.hasAttribute("data-addlead")) return;
   const el = e.target.closest(".buyer");

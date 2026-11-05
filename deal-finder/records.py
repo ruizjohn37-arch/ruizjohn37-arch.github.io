@@ -32,15 +32,15 @@ ALIASES = {
     "address": ["prop_loc", "property location", "property address", "location", "site address", "address"],
     "town": ["mun_name", "municipality", "town", "city", "property city"],
     "county": ["county", "county_name"],
-    "block": ["block"],
-    "lot": ["lot"],
+    "block": ["pclblock", "block"],
+    "lot": ["pcllot", "lot"],
     "prop_class": ["prop_class", "property class", "class"],
     "owner": ["owner_name", "owner", "owner name", "grantee", "buyer", "grantee name"],
     "mail_street": ["st_address", "owner address", "mailing address", "owner street", "mail address"],
     "mail_city_state": ["city_state", "owner city state", "mailing city state", "owner city/state"],
     "mail_zip": ["zip_code", "owner zip", "mailing zip", "zip"],
     "assessed": ["net_value", "assessed value", "total assessment", "assessment", "net value"],
-    "sale_date": ["sale_date", "deed date", "sale date", "recorded date", "date of sale"],
+    "sale_date": ["sale_date", "deed_date", "deed date", "sale date", "recorded date", "date of sale"],
     "sale_price": ["sale_price", "sale price", "consideration", "price"],
     "year_built": ["yr_constr", "year built", "year_built"],
     "building": ["bldg_desc", "building description", "building"],
@@ -67,6 +67,11 @@ def num(v):
 
 def parse_date(v):
     v = str(v or "").strip()
+    if re.fullmatch(r"\d{6}", v):  # NJ MOD-IV deed dates are YYMMDD
+        try:
+            return datetime.strptime(v, "%y%m%d").date()
+        except ValueError:
+            return None
     for cand in (v, v[:10], v.split(" ")[0]):
         for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y%m%d", "%m%d%y", "%m%d%Y"):
             try:
@@ -99,19 +104,102 @@ def tidy_town(t):
 
 
 def mail_state(city_state):
-    m = re.search(r"\b([A-Z]{2})\s*\d{0,5}\s*$", str(city_state or "").upper().strip())
+    t = re.sub(r"[\d-]+\s*$", "", str(city_state or "").upper()).strip().rstrip(",. ")
+    t = re.sub(r"\b([A-Z])[ .]+([A-Z])\.?$", r"\1\2", t)  # "N J" / "N.J." -> "NJ"
+    m = re.search(r"\b([A-Z]{2})$", t)
     return m.group(1) if m else ""
+
+
+_CACHE = {}
 
 
 def load_records():
     if not os.path.exists(RECORDS):
         return []
-    with open(RECORDS) as f:
-        return json.load(f)
+    mtime = os.path.getmtime(RECORDS)
+    if _CACHE.get("mtime") != mtime:
+        with open(RECORDS) as f:
+            _CACHE.clear()
+            _CACHE.update(mtime=mtime, records=json.load(f))
+    return _CACHE["records"]
+
+
+def cached(name, fn):
+    load_records()
+    if name not in _CACHE:
+        _CACHE[name] = fn()
+    return _CACHE[name]
 
 
 def property_key(r):
     return (norm_street(r["address"]), (r.get("town") or "").upper().strip())
+
+
+def save_records(recs):
+    os.makedirs(DATA, exist_ok=True)
+    tmp = RECORDS + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(recs, f)
+    os.replace(tmp, RECORDS)
+    _CACHE.clear()
+
+
+# ---------------------------------------------------------------- pull from the state
+PARCELS_URL = ("https://services2.arcgis.com/XVOqAjTOJ5P6ngMu/ArcGIS/rest/services/"
+               "Parcels_Composite_NJ_WM/FeatureServer/0/query")
+PULL_FIELDS = ["COUNTY", "MUN_NAME", "PCLBLOCK", "PCLLOT", "PROP_CLASS", "PROP_LOC", "OWNER_NAME", "ST_ADDRESS",
+               "CITY_STATE", "ZIP_CODE", "NET_VALUE", "DEED_DATE", "SALE_PRICE", "YR_CONSTR", "BLDG_DESC"]
+
+
+def cmd_pull(args):
+    """Download a county's residential tax list straight from NJ's public parcel service."""
+    import urllib.parse
+    import urllib.request
+    county = args.county.upper().replace(" COUNTY", "").strip()
+    if not re.fullmatch(r"[A-Z ]+", county):
+        sys.exit("County should be a name like UNION or ESSEX.")
+    where = f"COUNTY='{county}' AND PROP_CLASS IN ('2','4C')"
+    if args.towns:
+        towns = [t.strip().upper() for t in args.towns.split(",") if t.strip()]
+        if not all(re.fullmatch(r"[A-Z ]+", t) for t in towns):
+            sys.exit("Towns should be plain names, e.g. Elizabeth,Linden")
+        where += " AND (" + " OR ".join(f"MUN_NAME LIKE '{t}%'" for t in towns) + ")"
+    out = os.path.join(DATA, f"{county.lower().replace(' ', '_')}_parcels.csv")
+    os.makedirs(DATA, exist_ok=True)
+    offset, total = 0, 0
+    with open(out, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=PULL_FIELDS)
+        w.writeheader()
+        while True:
+            q = urllib.parse.urlencode({"where": where, "outFields": ",".join(PULL_FIELDS), "returnGeometry": "false",
+                                        "orderByFields": "OBJECTID", "resultOffset": offset,
+                                        "resultRecordCount": 2000, "f": "json"})
+            for attempt in range(4):
+                try:
+                    with urllib.request.urlopen(PARCELS_URL + "?" + q, timeout=90) as resp:
+                        data = json.load(resp)
+                    break
+                except Exception as e:  # the state server is sometimes slow; retry a few times
+                    if attempt == 3:
+                        raise
+                    print(f"  retrying ({e})", flush=True)
+            if "error" in data:
+                sys.exit(f"The state server said: {data['error']}")
+            feats = data.get("features", [])
+            for ft in feats:
+                w.writerow({k: ft["attributes"].get(k, "") for k in PULL_FIELDS})
+            total += len(feats)
+            print(f"  {total:,} properties downloaded", flush=True)
+            if not feats or not data.get("exceededTransferLimit"):
+                break
+            offset += len(feats)
+    print(f"Saved {out}")
+    cmd_import(argparse_ns(csv=out, town=None, county=county.title()))
+
+
+def argparse_ns(**kw):
+    import argparse
+    return argparse.Namespace(**kw)
 
 
 # ---------------------------------------------------------------- import
@@ -147,9 +235,7 @@ def cmd_import(args):
     existing = load_records()
     seen = {(property_key(r), r.get("sale_date"), r.get("owner", "").upper()) for r in existing}
     added = [r for r in rows if (property_key(r), r.get("sale_date"), r.get("owner", "").upper()) not in seen]
-    os.makedirs(DATA, exist_ok=True)
-    with open(RECORDS, "w") as f:
-        json.dump(existing + added, f)
+    save_records(existing + added)
     print(f"Mapped columns: {colmap}")
     print(f"Loaded {len(added)} new records ({len(existing) + len(added)} total).")
 
@@ -172,8 +258,7 @@ def cmd_flag(args):
                 tags.add(args.tag)
                 hits += 1
             r["tags"] = ";".join(sorted(tags))
-    with open(RECORDS, "w") as f:
-        json.dump(recs, f)
+    save_records(recs)
     print(f"Tagged {hits} properties as '{args.tag}' ({len(wanted)} addresses on the list).")
 
 
@@ -248,6 +333,13 @@ LEAD_COLUMNS = ["score", "address", "town", "county", "owner", "mail_street", "m
 
 
 def build_leads(top=None, town=None):
+    if not town:
+        allleads = cached("leads", lambda: _build_leads(None))
+        return allleads[:top] if top else allleads
+    return _build_leads(top, town)
+
+
+def _build_leads(top=None, town=None):
     out = []
     for r in latest_by_property(load_records()).values():
         if town and town.upper() not in (r.get("town") or "").upper():
@@ -285,6 +377,12 @@ def cmd_leads(args):
 
 # ---------------------------------------------------------------- cash buyers
 def find_buyers(months=24, min_buys=2):
+    if (months, min_buys) == (24, 2):
+        return cached("buyers", lambda: _find_buyers(months, min_buys))
+    return _find_buyers(months, min_buys)
+
+
+def _find_buyers(months=24, min_buys=2):
     """Companies that bought several properties recently = active cash investors."""
     cutoff = date.today().toordinal() - int(months * 30.4)
     buys = defaultdict(list)

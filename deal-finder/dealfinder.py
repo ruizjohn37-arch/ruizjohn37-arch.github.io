@@ -809,6 +809,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     run_job("Loading property records", records.cmd_import,
                             argparse.Namespace(csv=path, town=body.get("town"), county=body.get("county")))
+            elif action == "records_pull":
+                run_job("Downloading county records", records.cmd_pull,
+                        argparse.Namespace(county=body.get("county") or "UNION", towns=body.get("towns") or None))
             elif action == "followup":
                 run_job("Writing follow-ups", cmd_followup, argparse.Namespace(days=None))
             elif action == "blast":
@@ -1102,6 +1105,10 @@ def main():
     ri.add_argument("--town")
     ri.add_argument("--county")
     ri.set_defaults(func=records.cmd_import)
+    rp = rsub.add_parser("pull", help="download a county's tax list from NJ's public parcel service")
+    rp.add_argument("--county", default="UNION")
+    rp.add_argument("--towns", help="optional, comma separated, e.g. Elizabeth,Linden,Plainfield")
+    rp.set_defaults(func=records.cmd_pull)
     rl = rsub.add_parser("leads", help="rank owners most likely to sell")
     rl.add_argument("--top", type=int)
     rl.add_argument("--town")

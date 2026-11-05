@@ -183,7 +183,16 @@ Banks, towns, housing authorities and commercial properties are left out.
 **Cash buyers**: companies (LLC, Inc, Holdings…) that bought 2+ houses in the last 2 years, and anyone
 who flipped a house (bought and resold within 12 months). These are your best buyers.
 
-### Getting the records (about 2 minutes per county)
+### Easiest: pull a whole county automatically
+```bash
+python3 dealfinder.py records pull --county UNION                      # every home in Union County (~130,000)
+python3 dealfinder.py records pull --county UNION --towns Elizabeth,Linden,Plainfield
+```
+This downloads the county's tax list straight from New Jersey's public parcel service (the
+"Parcels and MOD-IV Composite" on services2.arcgis.com) and loads it. It takes a few minutes for a
+whole county. Run it again every month or two to pick up new sales.
+
+### Or download the files yourself (about 2 minutes per county)
 1. **Tax list (owners and mailing addresses):** search for **"Parcels and MOD-IV Composite of NJ"**
    on the NJ Geographic Information Network (NJGIN) open data site. Download your county
    (Union, Essex…) as **CSV / spreadsheet**. Your county tax board's website may also offer the tax list.
@@ -217,3 +226,30 @@ Try it first with the made-up samples: `sample_data/sample_tax_list.csv` and `sa
 
 Mail tips: send to the same lead every 3-4 weeks. Most deals come from the 3rd to 5th letter.
 Handwritten envelopes get opened more often. Honor every "don't contact me": add their address to your notes and stop.
+
+
+## The factory view
+The top of the dashboard shows your business as a production line:
+
+**Records → Off-market leads → New → Approved → Contacted → Replied → Negotiating → Under contract → Cash buyers → Closed**
+
+Each station shows how many deals are in it, with a status light:
+* **green**: deals are moving
+* **amber**: it needs you (approve, answer replies, follow-ups due, or a contract with no matching buyer)
+
+Click a station to jump to its deals. Below it, the **Deal board** lets you drag a card to the
+next stage, and the **Factory log** shows everything that happened, newest first.
+
+## Texting (Google Voice or your phone)
+Every agent, owner and buyer with a phone number gets a **Text** button. Clicking it opens your
+texting app (your phone, or Google Voice if that's your default) with a short message already
+written, and **you** press send. The tool doesn't send texts by itself, on purpose:
+* Google Voice doesn't allow automated or bulk texting, and accounts that do it get suspended.
+* Under federal law (the TCPA and the Do Not Call rules), texting homeowners' cell phones for
+  marketing without their permission can cost $500-$1,500 per text. Many wholesalers get sued over this.
+* **Safe:** texting listing agents at their business numbers, buyers who gave you their number, and
+  anyone who replied to you.
+* **Before texting a homeowner** from a skip-traced list, check the number against the
+  National Do Not Call Registry (telemarketing.donotcall.gov). Never text anyone who said stop.
+* If you outgrow texting by hand, use a provider built for business texting (one that registers
+  your number for business messaging, called "10DLC") and only text people who opted in.
