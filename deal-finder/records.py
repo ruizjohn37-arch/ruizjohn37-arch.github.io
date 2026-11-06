@@ -32,14 +32,15 @@ ALIASES = {
     "address": ["prop_loc", "property location", "property address", "location", "site address", "address"],
     "town": ["mun_name", "municipality", "town", "city", "property city"],
     "county": ["county", "county_name"],
+    "state": ["state", "prop_state", "property state"],
     "block": ["pclblock", "block"],
     "lot": ["pcllot", "lot"],
     "prop_class": ["prop_class", "property class", "class"],
     "owner": ["owner_name", "owner", "owner name", "grantee", "buyer", "grantee name"],
-    "mail_street": ["st_address", "owner address", "mailing address", "owner street", "mail address"],
-    "mail_city_state": ["city_state", "owner city state", "mailing city state", "owner city/state"],
-    "mail_zip": ["zip_code", "owner zip", "mailing zip", "zip"],
-    "assessed": ["net_value", "assessed value", "total assessment", "assessment", "net value"],
+    "mail_street": ["mail_street", "st_address", "owner address", "mailing address", "owner street", "mail address"],
+    "mail_city_state": ["mail_city_state", "city_state", "owner city state", "mailing city state", "owner city/state"],
+    "mail_zip": ["mail_zip", "zip_code", "owner zip", "mailing zip", "zip"],
+    "assessed": ["assessed", "net_value", "assessed value", "total assessment", "assessment", "net value"],
     "sale_date": ["sale_date", "deed_date", "deed date", "sale date", "recorded date", "date of sale"],
     "sale_price": ["sale_price", "sale price", "consideration", "price"],
     "year_built": ["yr_constr", "year built", "year_built"],
@@ -51,7 +52,9 @@ ENTITY = re.compile(r"\b(LLC|L\.L\.C|INC|CORP|CORPORATION|COMPANY|CO\b|HOLDINGS?
                     r"INVESTMENTS?|INVESTORS?|CAPITAL|GROUP|PARTNERS|LP|LLP|VENTURES|DEVELOPMENT|ENTERPRISES?|"
                     r"MANAGEMENT|HOMES|ASSETS|EQUITIES|REAL ESTATE)\b")
 GOVT = re.compile(r"\b(CITY OF|TOWN OF|TOWNSHIP|BOROUGH|COUNTY OF|STATE OF|HOUSING AUTHORITY|BOARD OF|"
-                  r"UNITED STATES|U S A|SECRETARY OF|FANNIE|FREDDIE|FEDERAL NATIONAL|FEDERAL HOME|HUD|CHURCH)\b")
+                  r"UNITED STATES|U S A|SECRETARY OF|FANNIE|FREDDIE|FEDERAL NATIONAL|FEDERAL HOME|HUD|CHURCH|"
+                  r"LAND BANK|AUTHORITY|CITYOWNED|PUBLIC SCHOOLS|RAILWAY|RAILROAD|INDUSTRIES|ELECTRIC|ILLUMINATING|"
+                  r"UTILIT(Y|IES)|FOUNDATION|UNIVERSITY|HOSPITAL|SCHOOL DISTRICT)\b")
 BANK = re.compile(r"\b(BANK|MORTGAGE|LOAN|TRUST COMPANY|FINANCIAL|SAVINGS|CREDIT UNION|SERVICING|N\.?A\.?)\b")
 ESTATE = re.compile(r"\b(ESTATE OF|EST OF|EXECUT|ADMINISTRAT|HEIRS|DECEASED|C/O)\b")
 RESIDENTIAL = {"2", "1", "4C"}  # 2 = residential, 1 = vacant land, 4C = apartments
@@ -152,10 +155,136 @@ PULL_FIELDS = ["COUNTY", "MUN_NAME", "PCLBLOCK", "PCLLOT", "PROP_CLASS", "PROP_L
                "CITY_STATE", "ZIP_CODE", "NET_VALUE", "DEED_DATE", "SALE_PRICE", "YR_CONSTR", "BLDG_DESC"]
 
 
-def cmd_pull(args):
-    """Download a county's residential tax list straight from NJ's public parcel service."""
+# Free public parcel services that list owner mailing addresses. Each maps the service's
+# field names to ours. Add a county by copying one of these (or use --url and --map).
+SOURCES = {
+    "detroit": {
+        "label": "Detroit, MI (City of Detroit assessor, ~380k parcels)",
+        "url": "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/Parcels_Current/FeatureServer/0/query",
+        "where": "property_class='401'",  # 401 = residential, improved
+        "order": "object_id", "town": "Detroit", "county": "Wayne", "state": "MI",
+        "map": {"address": "address", "zip": "zip_code", "owner": "taxpayer_1", "mail_street": "taxpayer_street",
+                "mail_city": "taxpayer_city", "mail_state": "taxpayer_state", "mail_zip": "taxpayer_zip",
+                "sale_date": "sale_date", "sale_price": "sale_price", "assessed": "assessed_value",
+                "year_built": "year_built", "block": "parcel_number"},
+    },
+    "cleveland": {
+        "label": "Cleveland, OH (Cuyahoga County parcels for the city, ~118k homes)",
+        "url": "https://services3.arcgis.com/dty2kHktVXHrqO8i/arcgis/rest/services/Parcel_Analytics_(PUBLIC_DRAFT_)/FeatureServer/0/query",
+        "where": "property_class='R' AND tax_luc_description NOT LIKE '%CONDO%'",
+        "order": "OBJECTID", "county": "Cuyahoga", "state": "OH",
+        "map": {"address": "par_addr_all|first", "town": "parcel_city", "owner": "parcel_owner",
+                "mail_street": "mail_addr_street", "mail_city": "mail_city", "mail_state": "mail_state",
+                "mail_zip": "mail_zip", "sale_date": "last_transfer_date", "sale_price": "last_sales_amount",
+                "assessed": "certified_tax_total", "block": "parcelpin"},
+    },
+}
+NORMAL_FIELDS = ["address", "town", "county", "state", "owner", "mail_street", "mail_city_state", "mail_zip",
+                 "sale_date", "sale_price", "assessed", "prop_class", "year_built", "block"]
+
+
+def fetch_arcgis(url, where, fields, order, on_page):
+    """Page through an ArcGIS FeatureServer/MapServer layer, 2,000 rows at a time."""
     import urllib.parse
     import urllib.request
+    offset, total = 0, 0
+    while True:
+        q = urllib.parse.urlencode({"where": where, "outFields": ",".join(fields), "returnGeometry": "false",
+                                    "orderByFields": order, "resultOffset": offset,
+                                    "resultRecordCount": 2000, "f": "json"})
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(url + "?" + q, timeout=90) as resp:
+                    data = json.load(resp)
+                break
+            except Exception as e:  # public servers are sometimes slow; retry a few times
+                if attempt == 3:
+                    raise
+                print(f"  retrying ({e})", flush=True)
+        if "error" in data:
+            sys.exit(f"The parcel server said: {data['error']}")
+        feats = data.get("features", [])
+        for ft in feats:
+            on_page(ft["attributes"])
+        total += len(feats)
+        print(f"  {total:,} properties downloaded", flush=True)
+        if not feats or not data.get("exceededTransferLimit"):
+            return total
+        offset += len(feats)
+
+
+def arcgis_date(v):
+    """ArcGIS dates come as milliseconds since 1970; other values pass through."""
+    if isinstance(v, (int, float)) and v > 10**9:
+        return datetime.utcfromtimestamp(v / 1000).date().isoformat()
+    return v or ""
+
+
+def pull_source(src, name, limit_where=None):
+    m = src["map"]
+    where = src.get("where") or "1=1"
+    if limit_where:
+        where = f"({where}) AND ({limit_where})"
+    out = os.path.join(DATA, f"{name}_parcels.csv")
+    os.makedirs(DATA, exist_ok=True)
+    with open(out, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=NORMAL_FIELDS)
+        w.writeheader()
+
+        def get(a, key):
+            """Field value, tidied. "FIELD|first" keeps only the text before the first comma."""
+            spec = m.get(key)
+            if not spec:
+                return ""
+            name, _, how = spec.partition("|")
+            v = a.get(name)
+            if v is None:
+                return ""
+            if not isinstance(v, str):
+                return v
+            v = " ".join(v.split())
+            return v.split(",")[0].strip() if how == "first" else v
+
+        def row(a):
+            city, st = get(a, "mail_city"), get(a, "mail_state")
+            w.writerow({
+                "address": get(a, "address"),
+                "town": src.get("town") or str(get(a, "town")).title(),
+                "county": src.get("county", ""), "state": src.get("state", ""),
+                "owner": get(a, "owner"), "mail_street": get(a, "mail_street"),
+                "mail_city_state": f"{city}, {st}".strip(", ") if (city or st) else get(a, "mail_city_state"),
+                "mail_zip": get(a, "mail_zip"),
+                "sale_date": arcgis_date(get(a, "sale_date")),
+                "sale_price": get(a, "sale_price"), "assessed": get(a, "assessed"),
+                "prop_class": "2",  # the source's filter already keeps only homes
+                "year_built": get(a, "year_built"), "block": get(a, "block"),
+            })
+        fields = sorted({v.partition("|")[0] for v in m.values()})
+        fetch_arcgis(src["url"], where, fields, src.get("order", "OBJECTID"), row)
+    print(f"Saved {out}")
+    cmd_import(argparse_ns(csv=out, town=None, county=src.get("county")))
+
+
+def cmd_pull(args):
+    """Download a county's residential tax list from a free public parcel service."""
+    if getattr(args, "url", None):
+        try:
+            m = dict(kv.split("=", 1) for kv in args.map.split(","))
+        except (AttributeError, ValueError):
+            sys.exit("Use --map like address=SITEADDR,owner=OWNNAME,mail_street=MAILADDR,mail_city=MAILCITY,"
+                     "mail_state=MAILST,mail_zip=MAILZIP,sale_date=SALEDATE,sale_price=SALEPRICE")
+        if "address" not in m or "owner" not in m and "mail_street" not in m:
+            sys.exit("--map needs at least address and owner (or mail_street).")
+        url = args.url.rstrip("/")
+        url = url if url.endswith("/query") else url + "/query"
+        src = {"url": url, "where": args.where or "1=1", "order": args.order or "OBJECTID", "map": m,
+               "town": args.town_name, "county": args.county_name or "", "state": (args.state or "").upper()}
+        return pull_source(src, re.sub(r"[^a-z0-9]+", "_", (args.county_name or "custom").lower()))
+    source = (getattr(args, "source", None) or "nj").lower()
+    if source != "nj":
+        if source not in SOURCES:
+            sys.exit(f"Unknown source {source!r}. Choose one of: nj, {', '.join(SOURCES)} (or use --url).")
+        return pull_source(SOURCES[source], source)
     county = args.county.upper().replace(" COUNTY", "").strip()
     if not re.fullmatch(r"[A-Z ]+", county):
         sys.exit("County should be a name like UNION or ESSEX.")
@@ -288,6 +417,8 @@ def score_lead(r, today=None):
     cls = (r.get("prop_class") or "2").upper().strip()
     if cls not in RESIDENTIAL:
         return None
+    if re.match(r"^0+\s", str(r.get("address") or "")):
+        return None  # "0 MAIN ST" is an empty lot with no house number
     prop_st, mail_st = norm_street(r["address"]), norm_street(r.get("mail_street"))
     if re.search(r"\b(ASSOC|ASSN|CONDO|HOA|MANAGEMENT CO)\b", mail_st):
         return None  # tax bill goes to an association or condo manager, not the owner
@@ -296,7 +427,8 @@ def score_lead(r, today=None):
     if absentee:
         flags.append("absentee owner")
         score += 25
-    if state and state != "NJ":
+    home = (r.get("state") or "NJ").upper()
+    if state and state != home:
         flags.append(f"owner lives in {state}")
         score += 15
     if ESTATE.search(owner):
@@ -316,7 +448,7 @@ def score_lead(r, today=None):
             score += 15
     elif r.get("sale_date") == "":
         score += 5  # no recorded sale in the data usually means owned a very long time
-    if sd and num(r.get("sale_price")) <= 100 and years is not None:
+    if sd and num(r.get("sale_price")) <= 100 and years is not None and not ENTITY.search(owner):
         flags.append("$0-$100 transfer (family / inherited)")
         score += 10
     if ENTITY.search(owner) and absentee:
@@ -460,7 +592,7 @@ def cmd_buyers(args):
 
 # ---------------------------------------------------------------- letters
 SELLER_LETTER = """<p>Hi {first},</p>
-<p>My name is {you}. I'm a local real estate investor, and I'm reaching out about your property at
+<p>My name is {you}. I'm a real estate investor, and I'm reaching out about your property at
 <b>{street}</b> in {town}.</p>
 <p>If you've ever thought about selling, I may be able to help. I work with cash buyers, so the
 house can be sold <b>as-is</b>: no repairs, no cleaning, no showings, and no agent commissions. You pick the
@@ -474,8 +606,7 @@ obligated to accept it.</p>
 
 BUYER_LETTER = """<p>Hi,</p>
 <p>My name is {you}. I find off-market houses in {towns} and sell the contracts to cash investors.
-I saw that {name} has been buying in the area, and I'd like to send you deals before anyone else
-sees them.</p>
+{saw} and I'd like to send you deals before anyone else sees them.</p>
 <p>If you'd like to be on my buyers list, text or call me at <b>{phone}</b> or email <b>{email}</b>
 with the towns you buy in, your price range, and how much rehab you'll take on.</p>
 <p>Thanks,<br>{you}</p>"""
@@ -491,10 +622,10 @@ def first_name(owner):
     if ENTITY.search(o) or ESTATE.search(o) or "&" in o and len(o) > 30:
         return "there"
     parts = re.split(r"[ ,&]+", o.strip())
-    # NJ tax lists usually write LAST, FIRST
-    if "," in o and len(parts) > 1:
+    # tax lists usually write LAST, FIRST; without a comma the order is a guess, so don't guess
+    if "," in o and len(parts) > 1 and len(parts[1]) > 1:
         return parts[1].title()
-    return parts[0].title() if parts and parts[0] else "there"
+    return "there"
 
 
 def render_letters(items, kind, cfg):
@@ -502,8 +633,18 @@ def render_letters(items, kind, cfg):
     ret = f"{you}<br>{html.escape(cfg.get('mailing_address', ''))}"
     pages = []
     for it in items:
+        if re.search(r"DECEASED", str(it.get("owner") or ""), re.I):
+            nm = re.sub(r"[\(\[]?\s*DECEASED\s*[\)\]]?", "", it["owner"], flags=re.I).strip(" ,&")
+            if "," in nm and "&" not in nm:  # LAST, FIRST JR -> First Last Jr
+                last, _, first = nm.partition(",")
+                words = first.split()
+                sfx = [w for w in words if w.upper().strip(".") in ("JR", "SR", "II", "III", "IV")]
+                nm = " ".join([w for w in words if w not in sfx] + [last.strip()] + sfx)
+            it = dict(it, owner="Estate of " + " ".join(nm.split()).title())
+        named = bool(it.get("owner")) or (kind == "buyer" and not str(it.get("name", "")).startswith("Owner at"))
+        recipient = (it.get("owner") or it.get("name")) if named else ("Real Estate Investor" if kind == "buyer" else "Current Owner")
         to = "<br>".join(html.escape(x) for x in [
-            it.get("owner") or it.get("name") or "Current Owner", it.get("mail_street"),
+            recipient, it.get("mail_street"),
             f"{it.get('mail_city_state', '')} {it.get('mail_zip', '')}".strip()] if x)
         if kind == "seller":
             body = SELLER_LETTER.format(first=html.escape(first_name(it.get("owner"))), you=html.escape(you),
@@ -512,7 +653,9 @@ def render_letters(items, kind, cfg):
                                         phone=html.escape(cfg.get("your_phone") or "[your phone]"),
                                         email=html.escape(cfg.get("your_email", "")))
         else:
-            body = BUYER_LETTER.format(you=html.escape(you), name=html.escape(company_name(it["name"])),
+            saw = (f"I saw that {company_name(it['name'])} has been buying in the area," if named else
+                   "Public records show you've bought several properties in the area,")
+            body = BUYER_LETTER.format(you=html.escape(you), saw=html.escape(saw),
                                        towns=html.escape(it.get("towns") or "your area"),
                                        phone=html.escape(cfg.get("your_phone") or "[your phone]"),
                                        email=html.escape(cfg.get("your_email", "")))
@@ -526,15 +669,23 @@ def render_letters(items, kind, cfg):
             "</style></head><body>" + "".join(pages) + "</body></html>")
 
 
+def letter_paths(kind):
+    """Seller and buyer letters go to separate files so one never overwrites the other."""
+    if kind == "buyer":
+        return os.path.join(DATA, "buyer_letters.html"), os.path.join(DATA, "buyer_mailing_list.csv")
+    return LETTERS, MAILING
+
+
 def write_letters(kind, top, cfg, town=None):
     items = build_leads(None, town) if kind == "seller" else find_buyers()
     items = [i for i in items if i.get("mail_street")][:top]
     if not items:
         sys.exit("Nobody to mail yet. Import records first.")
     os.makedirs(DATA, exist_ok=True)
-    with open(LETTERS, "w") as f:
+    letters, mailing = letter_paths(kind)
+    with open(letters, "w") as f:
         f.write(render_letters(items, kind, cfg))
-    with open(MAILING, "w", newline="") as f:
+    with open(mailing, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["name", "address", "city_state", "zip", "property"])
         for it in items:
@@ -545,5 +696,6 @@ def write_letters(kind, top, cfg, town=None):
 
 def cmd_letters(args, cfg):
     n = write_letters(args.kind, args.top, cfg, args.town)
-    print(f"{n} letters -> {LETTERS} (open it and print; one letter per page)")
-    print(f"Mailing list -> {MAILING} (for envelopes/labels, or upload to a mail service like Click2Mail)")
+    letters, mailing = letter_paths(args.kind)
+    print(f"{n} letters -> {letters} (open it and print; one letter per page)")
+    print(f"Mailing list -> {mailing} (for envelopes/labels, or upload to a mail service like Click2Mail)")

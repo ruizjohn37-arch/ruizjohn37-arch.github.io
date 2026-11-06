@@ -219,6 +219,26 @@ This downloads the county's tax list straight from New Jersey's public parcel se
 "Parcels and MOD-IV Composite" on services2.arcgis.com) and loads it. It takes a few minutes for a
 whole county. Run it again every month or two to pick up new sales.
 
+### Other markets (outside New Jersey)
+```bash
+python3 dealfinder.py records pull --source detroit     # every home in Detroit, MI (~300,000)
+```
+Any county that publishes its parcels on an ArcGIS server (most do; search "<county> parcels
+FeatureServer") works with `--url`. Open the layer's page, note the field names for the address,
+owner and mailing address, then:
+```bash
+python3 dealfinder.py records pull --url "https://.../FeatureServer/0" --state OH --county-name "Your County" \
+  --map address=SITE_ADDR,owner=OWNER_NAME,mail_street=MAIL_ADDR,mail_city=MAIL_CITY,mail_state=MAIL_STATE,mail_zip=MAIL_ZIP,sale_date=SALE_DATE,sale_price=SALE_PRICE \
+  --where "LAND_USE='RESIDENTIAL'"
+```
+(The capitalized names are placeholders: swap in the field names your county's layer actually uses.)
+Keep each market in its own data folder so leads don't mix: set `DEALFINDER_DATA=data_detroit`
+before the command (Mac/Linux: `DEALFINDER_DATA=data_detroit python3 dealfinder.py ...`).
+
+Before you mail a new state, check its wholesaling law. Several states now require a license or
+special disclosures to assign contracts (for example South Carolina, Oklahoma, Pennsylvania and
+Illinois); Texas, Michigan and Ohio are lighter but still expect you to disclose that you may assign.
+
 ### Or download the files yourself (about 2 minutes per county)
 1. **Tax list (owners and mailing addresses):** search for **"Parcels and MOD-IV Composite of NJ"**
    on the NJ Geographic Information Network (NJGIN) open data site. Download your county
