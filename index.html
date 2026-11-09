@@ -20,6 +20,10 @@
     ul li { margin:20px 0; background:#1c1c1c; padding:20px; border-radius:10px; text-align:center; }
     .contact p { font-size:1.8rem; margin:30px 0; text-align:center; }
     .contact a { color:#ff4500; font-weight:bold; }
+    .video-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
+    .video-grid figure { margin:0; background:#1c1c1c; border-radius:10px; overflow:hidden; }
+    .video-grid video { width:100%; aspect-ratio:9/16; object-fit:cover; display:block; background:#000; }
+    .video-grid figcaption { padding:12px; font-size:1.1rem; text-align:center; }
     footer { text-align:center; padding:50px; background:#111; font-size:1.2rem; }
     @media (max-width:600px) { .hero h1 { font-size:2.6rem; } h2 { font-size:2.4rem; } .btn { font-size:1.3rem; padding:15px 40px; } }
   </style>
@@ -53,6 +57,13 @@
     </div>
   </section>
 
+  <section id="videos" data-videos="construction" data-base="videos/" hidden>
+    <div class="container">
+      <h2>Nuestro Trabajo / Our Work</h2>
+      <div class="video-grid"></div>
+    </div>
+  </section>
+
   <section id="contact" class="contact">
     <div class="container">
       <h2>Contáctenos / Contact Us</h2>
@@ -67,5 +78,6 @@
     <p>&copy; 2026 Hands of Faith Construction Services. Construido con Fe / Built on Faith. Houston, TX.</p>
   </footer>
 
+  <script src="videos/videos.js"></script>
 </body>
 </html>

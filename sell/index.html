@@ -58,6 +58,10 @@
   .investors { background: var(--soft); }
   footer { padding: 26px 0 40px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
   a { color: var(--accent); }
+  .video-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
+  .video-grid figure { margin:0; background:var(--soft); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .video-grid video { width:100%; aspect-ratio:9/16; object-fit:cover; display:block; background:#000; }
+  .video-grid figcaption { padding:10px 12px; font-size:15px; color:var(--muted); }
   @media (max-width: 760px) {
     .hero .wrap, .steps { grid-template-columns: 1fr; }
     .hero { padding-top: 26px; }
@@ -135,6 +139,13 @@
     </div>
   </div>
 </div>
+
+<section id="videos" data-videos="sell" data-base="../videos/" hidden>
+  <div class="wrap">
+    <h2>Watch: how I buy houses</h2>
+    <div class="video-grid"></div>
+  </div>
+</section>
 
 <section>
   <div class="wrap">
@@ -231,5 +242,6 @@
   });
 })();
 </script>
+<script src="../videos/videos.js"></script>
 </body>
 </html>
