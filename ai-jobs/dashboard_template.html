@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Jobs Board</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--mute:#626875;--line:#e3e6eb;--accent:#2f6fde;--good:#1f8a4c;--mid:#b7791f;--low:#9aa1ad}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1a1d24;--ink:#e9ebef;--mute:#9aa1ad;--line:#2a2e37;--accent:#6b9cff;--good:#4cc27e;--mid:#e0a43f;--low:#6b7280}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:24px;margin:0 0 2px}h2{font-size:17px;margin:28px 0 10px}.sub{color:var(--mute);font-size:13px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:16px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.tile b{display:block;font-size:24px}.tile span{color:var(--mute);font-size:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}input,select{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}input{flex:1;min-width:160px}
+.job{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
+.sc{min-width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff}
+.job a{color:var(--accent);font-weight:600;text-decoration:none}.job .meta{color:var(--mute);font-size:13px}.why{font-size:13px;margin-top:3px}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mute);margin-left:6px}
+.sk{display:grid;grid-template-columns:130px 1fr 44px;gap:8px;align-items:center;font-size:13px;margin:4px 0}
+.track{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.fill{height:100%;background:var(--accent)}.fill.learn{background:var(--mid)}
+.legend{font-size:12px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>AI Jobs Board</h1>
+<div class="sub" id="upd"></div>
+<div class="tiles" id="tiles"></div>
+
+<h2>Best matches</h2>
+<div class="bar">
+  <input id="q" placeholder="Search title, company, why…">
+  <select id="st"><option value="">All status</option><option>new</option><option>applied</option><option>interview</option><option>won</option><option>paid</option><option>skip</option></select>
+  <select id="min"><option value="0">Any score</option><option value="50">50+</option><option value="60" selected>60+</option><option value="70">70+</option></select>
+</div>
+<div id="list"></div>
+
+<h2>What the market wants (study list)</h2>
+<div class="legend">Share of AI job posts that mention each skill. Blue = you have it, orange = learn next.</div>
+<div id="skills"></div>
+</main>
+<script>
+const D=/*DATA*/null;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const col=s=>s>=70?"var(--good)":s>=55?"var(--mid)":"var(--low)";
+const money=j=>{const t=+j.salary_max||+j.salary_min;return t?` · $${Math.round(t/1000)}k`:""};
+function tiles(){const J=D.jobs,c=s=>J.filter(j=>j.status===s).length;
+ const T=[["AI jobs found",J.length],["Strong matches (70+)",J.filter(j=>+j.score>=70).length],["Applied",c("applied")],["Interviews",c("interview")],["Won",c("won")+c("paid")]];
+ $("tiles").innerHTML=T.map(([l,v])=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`).join("")}
+function list(){const q=$("q").value.toLowerCase(),st=$("st").value,mn=+$("min").value;
+ const J=D.jobs.filter(j=>+j.score>=mn&&(!st||j.status===st)&&(!q||(j.title+j.company+j.why).toLowerCase().includes(q))).slice(0,100);
+ $("list").innerHTML=J.length?J.map(j=>`<div class="job"><div class="sc" style="background:${col(+j.score)}">${j.score}</div><div>
+ <a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a><span class="pill">${esc(j.status)}</span>
+ <div class="meta">${esc(j.company)} · ${esc(j.location)}${money(j)} · ${esc(j.source)} · ${esc(j.date)}</div>
+ <div class="why">${esc(j.why)}</div></div></div>`).join(""):"<p class='sub'>No jobs match.</p>"}
+function skills(){$("skills").innerHTML=D.skills.map(s=>`<div class="sk"><span>${esc(s.skill)}</span><div class="track"><div class="fill ${s.have?"":"learn"}" style="width:${s.pct}%"></div></div><span>${s.pct}%</span></div>`).join("")}
+if(D){$("upd").textContent="Updated "+D.updated;tiles();list();skills();["q","st","min"].forEach(i=>$(i).addEventListener("input",list))}
+else $("upd").textContent="No data yet: run python3 aijobs.py run";
+</script>
+</body>
+</html>
