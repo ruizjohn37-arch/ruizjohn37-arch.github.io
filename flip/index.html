@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flip Checker</title>
+<meta name="description" content="Check an Amazon arbitrage deal before you buy: profit per unit, ROI, max buy price and a buy / maybe / pass verdict.">
+<style>
+  :root { --ink:#14213d; --muted:#5b6475; --bg:#ffffff; --soft:#f3f6fb; --line:#dde3ee; --accent:#0a7d4f; --accent-ink:#ffffff;
+          --good:#0a7d4f; --warn:#a15c00; --bad:#b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink:#eef2f8; --muted:#a6afbf; --bg:#0f1420; --soft:#171e2d; --line:#2a3346; --accent:#2fbf7f; --accent-ink:#06150e;
+            --good:#2fbf7f; --warn:#f0a43a; --bad:#ff6b5e; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  .wrap { max-width:980px; margin:0 auto; padding:0 16px; }
+  header { padding:18px 0; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:clamp(24px,4vw,32px); }
+  header p { margin:4px 0 0; color:var(--muted); }
+  main { padding:22px 0 40px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+  .grid > * { min-width:0; }
+  .card { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .card h2 { margin:0 0 10px; font-size:19px; }
+  label { display:block; font-size:14px; font-weight:600; margin:10px 0 4px; }
+  .hint { font-weight:400; color:var(--muted); }
+  input, select { width:100%; font:inherit; font-size:16px; padding:10px 11px; border:1px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink); }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row > * { min-width:0; }
+  .verdict { border-radius:12px; padding:16px; text-align:center; font-weight:800; font-size:26px; margin-bottom:14px; border:2px solid; }
+  .verdict small { display:block; font-size:14px; font-weight:500; margin-top:4px; }
+  .v-buy { color:var(--good); border-color:var(--good); }
+  .v-maybe { color:var(--warn); border-color:var(--warn); }
+  .v-pass { color:var(--bad); border-color:var(--bad); }
+  .stats { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .stat { background:var(--soft); border-radius:10px; padding:10px 12px; }
+  .stat b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+  .stat span { font-size:13px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:14px; margin-top:12px; font-variant-numeric:tabular-nums; }
+  td { padding:5px 0; border-bottom:1px solid var(--line); }
+  td:last-child { text-align:right; }
+  .btn { font:inherit; font-weight:700; padding:10px 16px; border-radius:9px; border:0; background:var(--accent); color:var(--accent-ink); cursor:pointer; }
+  .btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .log { overflow-x:auto; }
+  .log table { min-width:620px; }
+  .log td, .log th { padding:7px 6px; text-align:left; border-bottom:1px solid var(--line); }
+  .log th { font-size:13px; color:var(--muted); }
+  .checklist { padding-left:20px; margin:8px 0 0; }
+  .checklist li { margin:6px 0; }
+  .note { font-size:13px; color:var(--muted); }
+  @media (max-width:760px) { .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Flip Checker</h1>
+  <p>Is this Amazon arbitrage deal worth buying? Check it before you pay.</p>
+</div></header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="card">
+      <h2>The deal</h2>
+      <label for="name">Product <span class="hint">(optional)</span></label>
+      <input id="name" placeholder="e.g. LEGO set 10311, Target clearance">
+      <div class="row">
+        <div><label for="buy">Buy price ($/unit)</label><input id="buy" type="number" step="0.01" min="0" value="12.00"></div>
+        <div><label for="sell">Amazon price ($)</label><input id="sell" type="number" step="0.01" min="0" value="29.99"></div>
+      </div>
+      <div class="row">
+        <div><label for="tax">Sales tax paid (%)</label><input id="tax" type="number" step="0.01" min="0" value="8.25"></div>
+        <div><label for="qty">Quantity</label><input id="qty" type="number" step="1" min="1" value="6"></div>
+      </div>
+      <label for="cat">Category <span class="hint">(sets the referral fee)</span></label>
+      <select id="cat">
+        <option value="std">Most categories: 15%</option>
+        <option value="toys">Toys &amp; Games: 15%</option>
+        <option value="home">Home &amp; Kitchen: 15%</option>
+        <option value="beauty">Beauty / Health: 8% up to $10, else 15%</option>
+        <option value="grocery">Grocery: 8% up to $15, else 15%</option>
+        <option value="elec">Consumer Electronics: 8%</option>
+        <option value="custom">Custom %</option>
+      </select>
+      <div id="customWrap" hidden><label for="custom">Referral fee (%)</label><input id="custom" type="number" step="0.1" min="0" value="15"></div>
+      <div class="row">
+        <div><label for="fba">FBA fee ($/unit) <span class="hint">from SellerAmp</span></label><input id="fba" type="number" step="0.01" min="0" value="4.50"></div>
+        <div><label for="ship">Ship to Amazon ($/unit)</label><input id="ship" type="number" step="0.01" min="0" value="0.75"></div>
+      </div>
+      <div class="row">
+        <div><label for="prep">Prep / labels ($/unit)</label><input id="prep" type="number" step="0.01" min="0" value="0.30"></div>
+        <div><label for="cash">Cashback (%)</label><input id="cash" type="number" step="0.1" min="0" value="0"></div>
+      </div>
+      <div class="row">
+        <div><label for="tProfit">Min profit ($/unit)</label><input id="tProfit" type="number" step="0.5" min="0" value="3"></div>
+        <div><label for="tRoi">Min ROI (%)</label><input id="tRoi" type="number" step="1" min="0" value="30"></div>
+      </div>
+      <p class="note">Fee rates are estimates. Use SellerAmp's exact fees for the item when you have them.</p>
+    </section>
+
+    <section>
+      <div class="card">
+        <div id="verdict" class="verdict"></div>
+        <div class="stats">
+          <div class="stat"><b id="sProfit"></b><span>Profit per unit</span></div>
+          <div class="stat"><b id="sRoi"></b><span>ROI</span></div>
+          <div class="stat"><b id="sTotal"></b><span>Total profit (all units)</span></div>
+          <div class="stat"><b id="sMax"></b><span>Max buy price for your targets</span></div>
+        </div>
+        <table>
+          <tr><td>Amazon price</td><td id="bSell"></td></tr>
+          <tr><td>− Referral fee</td><td id="bRef"></td></tr>
+          <tr><td>− FBA fee</td><td id="bFba"></td></tr>
+          <tr><td>− Ship + prep</td><td id="bShip"></td></tr>
+          <tr><td>− Your cost (after tax &amp; cashback)</td><td id="bCost"></td></tr>
+          <tr><td><b>Profit per unit</b></td><td id="bProfit"></td></tr>
+          <tr><td>Margin on sale price</td><td id="bMargin"></td></tr>
+          <tr><td>Cash you put in (all units)</td><td id="bCash"></td></tr>
+        </table>
+        <div class="actions">
+          <button class="btn" id="save">Save to deal log</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <h2>Before you buy, check in Keepa</h2>
+        <ul class="checklist">
+          <li>Sales rank drops often (it sells several times a month).</li>
+          <li>The price has held for 90 days and isn't a spike.</li>
+          <li>Amazon itself isn't selling it, or isn't always in stock.</li>
+          <li>You're not gated on the brand or category, and there are no IP complaints.</li>
+          <li>Only a handful of FBA sellers compete on it.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:20px">
+    <h2>Deal log</h2>
+    <p class="note">Saved in this browser only. Export to CSV to keep a copy.</p>
+    <div class="log"><table>
+      <thead><tr><th>Date</th><th>Product</th><th>Buy</th><th>Sell</th><th>Qty</th><th>Profit/unit</th><th>ROI</th><th>Verdict</th><th></th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table></div>
+    <div class="actions">
+      <button class="btn ghost" id="export">Export CSV</button>
+      <button class="btn ghost" id="clear">Clear log</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const ids = ['name','buy','sell','tax','qty','cat','custom','fba','ship','prep','cash','tProfit','tRoi'];
+  const num = id => Math.max(0, parseFloat($(id).value) || 0);
+  const money = v => (v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2);
+  const KEY = 'flipChecker.log', FORM = 'flipChecker.form';
+
+  function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function load(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
+
+  function refRate(price) {
+    switch ($('cat').value) {
+      case 'beauty': return price <= 10 ? 0.08 : 0.15;
+      case 'grocery': return price <= 15 ? 0.08 : 0.15;
+      case 'elec': return 0.08;
+      case 'custom': return num('custom') / 100;
+      default: return 0.15;
+    }
+  }
+  const refFee = price => price > 0 ? Math.max(0.30, price * refRate(price)) : 0;
+
+  function calc() {
+    const buy = num('buy'), sell = num('sell'), qty = Math.max(1, Math.round(num('qty')));
+    const cost = buy * (1 + num('tax') / 100) - buy * num('cash') / 100;
+    const ref = refFee(sell), fba = num('fba'), shipPrep = num('ship') + num('prep');
+    const payout = sell - ref - fba - shipPrep;
+    const profit = payout - cost;
+    const invested = cost + shipPrep;
+    const roi = invested > 0 ? profit / invested : 0;
+    // Highest pre-tax shelf price that still hits both targets
+    const tP = num('tProfit'), tR = num('tRoi') / 100;
+    const k = 1 + num('tax') / 100 - num('cash') / 100;
+    // cost <= payout - tP  and  (payout - cost) / (cost + shipPrep) >= tR
+    const maxCost = Math.min(payout - tP, (payout - tR * shipPrep) / (1 + tR));
+    const maxBuy = k > 0 ? Math.max(0, Math.floor(maxCost / k * 100) / 100) : 0;
+    let verdict, cls, why;
+    if (profit >= tP && roi >= tR) { verdict = 'BUY'; cls = 'v-buy'; why = 'Hits both your profit and ROI targets.'; }
+    else if (profit > 0 && (profit >= tP * 0.66 || roi >= tR * 0.66)) { verdict = 'MAYBE'; cls = 'v-maybe'; why = 'Profitable, but under your targets. Negotiate or look for a coupon.'; }
+    else { verdict = 'PASS'; cls = 'v-pass'; why = profit <= 0 ? 'You lose money after Amazon fees.' : 'Too thin to be worth the risk.'; }
+    return { buy, sell, qty, cost, ref, fba, shipPrep, profit, roi, maxBuy, verdict, cls, why,
+             margin: sell > 0 ? profit / sell : 0, total: profit * qty, cash: invested * qty };
+  }
+
+  function render() {
+    $('customWrap').hidden = $('cat').value !== 'custom';
+    const r = calc();
+    $('verdict').className = 'verdict ' + r.cls;
+    $('verdict').innerHTML = r.verdict + '<small>' + r.why + '</small>';
+    $('sProfit').textContent = money(r.profit);
+    $('sRoi').textContent = (r.roi * 100).toFixed(0) + '%';
+    $('sTotal').textContent = money(r.total);
+    $('sMax').textContent = money(r.maxBuy);
+    $('bSell').textContent = money(r.sell);
+    $('bRef').textContent = money(-r.ref);
+    $('bFba').textContent = money(-r.fba);
+    $('bShip').textContent = money(-r.shipPrep);
+    $('bCost').textContent = money(-r.cost);
+    $('bProfit').innerHTML = '<b>' + money(r.profit) + '</b>';
+    $('bMargin').textContent = (r.margin * 100).toFixed(1) + '%';
+    $('bCash').textContent = money(r.cash);
+    const f = {}; ids.forEach(id => f[id] = $(id).value); store(FORM, f);
+  }
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function renderLog() {
+    const log = load(KEY, []);
+    $('logBody').innerHTML = log.length ? log.map((d, i) =>
+      '<tr><td>' + esc(d.date) + '</td><td>' + esc(d.name || '—') + '</td><td>' + money(d.buy) + '</td><td>' + money(d.sell) +
+      '</td><td>' + d.qty + '</td><td>' + money(d.profit) + '</td><td>' + d.roi + '%</td><td>' + esc(d.verdict) +
+      '</td><td><button class="btn ghost" data-del="' + i + '" aria-label="Delete">×</button></td></tr>').join('')
+      : '<tr><td colspan="9" class="note">No deals saved yet.</td></tr>';
+  }
+
+  $('save').onclick = () => {
+    const r = calc(), log = load(KEY, []);
+    log.unshift({ date: new Date().toISOString().slice(0, 10), name: $('name').value.trim(), buy: r.buy, sell: r.sell,
+                  qty: r.qty, profit: +r.profit.toFixed(2), roi: Math.round(r.roi * 100), verdict: r.verdict });
+    store(KEY, log); renderLog();
+  };
+  $('logBody').onclick = e => {
+    const i = e.target.getAttribute('data-del'); if (i == null) return;
+    const log = load(KEY, []); log.splice(+i, 1); store(KEY, log); renderLog();
+  };
+  $('clear').onclick = () => { if (confirm('Delete every saved deal?')) { store(KEY, []); renderLog(); } };
+  $('export').onclick = () => {
+    const log = load(KEY, []);
+    const rows = [['date','product','buy','sell','qty','profit_per_unit','roi_pct','verdict']]
+      .concat(log.map(d => [d.date, d.name, d.buy, d.sell, d.qty, d.profit, d.roi, d.verdict]));
+    const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'flip-deals.csv'; a.click();
+  };
+
+  const saved = load(FORM, null);
+  if (saved) ids.forEach(id => { if (saved[id] != null) $(id).value = saved[id]; });
+  ids.forEach(id => $(id).addEventListener('input', render));
+  render(); renderLog();
+})();
+</script>
+</body>
+</html>
