@@ -1,0 +1,22 @@
+{
+  "name": "John Ruiz",
+  "location": "Roselle Park, NJ",
+  "timezone": "America/New_York",
+  "remote_ok": true,
+  "local_cities": ["new jersey", "nj", "new york", "nyc", "newark", "jersey city", "elizabeth"],
+  "min_hourly_usd": 35,
+  "min_salary_usd": 65000,
+  "headline": "Operations leader who builds AI automations: lead finders, outreach agents and dashboards for small businesses.",
+  "summary": "Regional manager for 2 Pump It Up locations and a 50-person team (+15% regional sales, -20% stock shortages, +25% repeat business from a loyalty program I launched). I now build AI tools with Claude and Python: a working real-estate deal finder that pulls listings and county records, ranks deals, writes personal outreach emails and tracks everything in a dashboard. Industrial Design degree (Kean University, 2023), Adobe Creative Suite, bilingual English/Spanish.",
+  "portfolio": [
+    {"name": "AI Deal Finder", "url": "https://ruizjohn37-arch.github.io/deal-finder/", "what": "Python + AI agent that finds off-market houses, scores them, drafts outreach emails and tracks deals in a dashboard"},
+    {"name": "Seller landing page", "url": "https://ruizjohn37-arch.github.io/sell/", "what": "Lead-capture landing page for motivated home sellers"}
+  ],
+  "skills": {
+    "strong": ["operations", "team leadership", "customer service", "customer success", "sales", "training", "inventory", "event coordination", "scheduling", "bilingual", "spanish", "adobe", "photoshop", "illustrator", "design", "retail", "hospitality"],
+    "ai_built": ["claude", "chatgpt", "prompt", "prompt engineering", "ai agent", "automation", "lead generation", "outreach", "email automation", "python", "dashboard", "web scraping", "api", "no-code", "zapier", "make.com", "n8n", "chatbot", "gpt", "llm", "generative ai", "ai tools"],
+    "learning": ["rag", "langchain", "javascript", "sql", "crm", "hubspot", "airtable"]
+  },
+  "target_titles": ["ai automation", "automation specialist", "ai operations", "ai ops", "ai implementation", "ai solutions", "ai consultant", "prompt engineer", "prompt", "ai specialist", "ai content", "ai customer success", "customer success", "ai support", "operations manager", "chatbot", "no-code", "workflow automation", "ai trainer", "spanish", "bilingual", "ai generalist", "ai agent"],
+  "avoid_titles": ["senior staff", "principal", "phd", "research scientist", "machine learning engineer", "ml engineer", "staff engineer", "director of engineering", "kernel", "rust", "golang", "c++", "embedded", "security clearance", "nurse", "physician", "attorney"]
+}
