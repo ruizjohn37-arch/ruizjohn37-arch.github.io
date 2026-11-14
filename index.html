@@ -4,6 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hands of Faith Construction Services | Houston, TX</title>
+  <meta name="description" content="Residential construction in Houston, TX: drywall, painting, texture, decks, pergolas, wood fencing, siding, electric, plumbing, concrete, framing and pressure washing. Free estimates. Call 346-251-3550.">
+  <meta property="og:title" content="Hands of Faith Construction Services | Houston, TX">
+  <meta property="og:description" content="Residential construction in Houston. Free estimates. Call 346-251-3550.">
+  <meta property="og:type" content="website">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "GeneralContractor",
+    "name": "Hands of Faith Construction Services",
+    "telephone": "+1-346-251-3550",
+    "email": "handsofffaith0629@gmail.com",
+    "areaServed": { "@type": "City", "name": "Houston, TX" },
+    "address": { "@type": "PostalAddress", "addressLocality": "Houston", "addressRegion": "TX", "addressCountry": "US" },
+    "knowsLanguage": ["es", "en"],
+    "knowsAbout": ["Drywall", "Painting", "Texture", "Decks", "Pergolas", "Wood fencing", "Siding", "Electrical", "Plumbing", "Concrete", "Framing", "Pressure washing"]
+  }
+  </script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     body { font-family: Arial, sans-serif; background:#000; color:#fff; margin:0; line-height:1.7; font-size:18px; }
@@ -13,19 +30,28 @@
     .hero { text-align:center; padding:120px 20px 80px; background:#111; }
     .hero h1 { font-size:3.2rem; color:#ff4500; margin-bottom:20px; }
     .hero p { font-size:1.6rem; margin-bottom:35px; }
-    .btn { background:#ff4500; color:#000; padding:18px 50px; border-radius:50px; font-size:1.5rem; text-decoration:none; font-weight:bold; display:inline-block; }
+    .btn { background:#ff4500; color:#000; padding:18px 50px; border-radius:50px; font-size:1.5rem; text-decoration:none; font-weight:bold; display:inline-block; max-width:100%; box-sizing:border-box; }
     section { padding:70px 0; }
     h2 { color:#ff4500; text-align:center; font-size:3rem; margin-bottom:40px; }
     ul { list-style:none; padding:0; font-size:1.4rem; }
     ul li { margin:20px 0; background:#1c1c1c; padding:20px; border-radius:10px; text-align:center; }
     .contact p { font-size:1.8rem; margin:30px 0; text-align:center; }
-    .contact a { color:#ff4500; font-weight:bold; }
+    .contact a { color:#ff4500; font-weight:bold; overflow-wrap:anywhere; }
     .video-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }
     .video-grid figure { margin:0; background:#1c1c1c; border-radius:10px; overflow:hidden; }
     .video-grid video { width:100%; aspect-ratio:9/16; object-fit:cover; display:block; background:#000; }
     .video-grid figcaption { padding:12px; font-size:1.1rem; text-align:center; }
+    .quote { max-width:560px; margin:0 auto; background:#1c1c1c; padding:24px; border-radius:10px; }
+    .quote label { display:block; font-size:1.05rem; margin:14px 0 6px; }
+    .quote input, .quote select, .quote textarea { width:100%; box-sizing:border-box; font:inherit; font-size:16px; padding:12px; border-radius:8px; border:1px solid #444; background:#000; color:#fff; }
+    .quote textarea { min-height:90px; }
+    .quote .row { display:flex; gap:12px; flex-wrap:wrap; margin-top:20px; }
+    .quote button { flex:1 1 200px; font:inherit; font-weight:bold; font-size:1.15rem; padding:14px; border-radius:50px; border:0; cursor:pointer; }
+    .quote .primary { background:#ff4500; color:#000; }
+    .quote .secondary { background:#333; color:#fff; }
+    .quote .err { color:#ff8a65; min-height:1.4em; margin-top:10px; text-align:center; }
     footer { text-align:center; padding:50px; background:#111; font-size:1.2rem; }
-    @media (max-width:600px) { .hero h1 { font-size:2.6rem; } h2 { font-size:2.4rem; } .btn { font-size:1.3rem; padding:15px 40px; } }
+    @media (max-width:600px) { .hero h1 { font-size:2.6rem; } h2 { font-size:2.4rem; } .btn { font-size:1.2rem; padding:15px 24px; } }
   </style>
 </head>
 <body>
@@ -42,6 +68,7 @@
       <h1>Construyendo con Fe y Calidad / Building with Faith & Quality</h1>
       <p>Servicios de construcción residencial en Houston, TX. / Residential construction services in Houston, TX.</p>
       <a href="tel:3462513550" class="btn">Llamar Ahora / Call Now: 346-251-3550</a>
+      <p style="margin-top:20px; font-size:1.2rem;"><a href="#estimate" style="color:#ff4500;">Pedir estimado gratis / Get a free estimate ↓</a></p>
     </div>
   </section>
 
@@ -64,6 +91,39 @@
     </div>
   </section>
 
+  <section id="estimate">
+    <div class="container">
+      <h2>Estimado Gratis / Free Estimate</h2>
+      <form class="quote" id="q" novalidate>
+        <label for="q-name">Nombre / Name</label>
+        <input id="q-name" autocomplete="name">
+        <label for="q-contact">Teléfono o email / Phone or email</label>
+        <input id="q-contact" autocomplete="tel">
+        <label for="q-job">Trabajo / Job</label>
+        <select id="q-job">
+          <option>Drywall / Pintura / Painting / Textura</option>
+          <option>Decks / Pergolas / Cercas / Fencing</option>
+          <option>Siding</option>
+          <option>Electricidad / Electric</option>
+          <option>Plomería / Plumbing</option>
+          <option>Concreto / Concrete</option>
+          <option>Framing</option>
+          <option>Lavado a Presión / Pressure Washing</option>
+          <option>Otro / Other</option>
+        </select>
+        <label for="q-where">Zona o dirección / Area or address</label>
+        <input id="q-where" autocomplete="street-address" placeholder="Houston, TX">
+        <label for="q-notes">Detalles / Details (optional)</label>
+        <textarea id="q-notes"></textarea>
+        <div class="row">
+          <button type="button" class="primary" data-via="sms">Enviar texto / Send text</button>
+          <button type="button" class="secondary" data-via="email">Enviar email / Send email</button>
+        </div>
+        <div class="err" id="q-err" role="alert"></div>
+      </form>
+    </div>
+  </section>
+
   <section id="contact" class="contact">
     <div class="container">
       <h2>Contáctenos / Contact Us</h2>
@@ -78,6 +138,25 @@
     <p>&copy; 2026 Hands of Faith Construction Services. Construido con Fe / Built on Faith. Houston, TX.</p>
   </footer>
 
+  <script>
+  (function () {
+    var PHONE = "+13462513550", EMAIL = "handsofffaith0629@gmail.com";
+    function v(id) { return document.getElementById(id).value.trim(); }
+    document.querySelectorAll("#q button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var err = document.getElementById("q-err");
+        if (!v("q-name") || !v("q-contact")) { err.textContent = "Nombre y teléfono, por favor / Please add your name and phone."; return; }
+        err.textContent = "";
+        var msg = "Free estimate request\nName: " + v("q-name") + "\nContact: " + v("q-contact") +
+          "\nJob: " + v("q-job") + (v("q-where") ? "\nArea: " + v("q-where") : "") + (v("q-notes") ? "\nDetails: " + v("q-notes") : "");
+        var body = encodeURIComponent(msg);
+        location.href = b.getAttribute("data-via") === "sms"
+          ? "sms:" + PHONE + "?&body=" + body
+          : "mailto:" + EMAIL + "?subject=" + encodeURIComponent("Free estimate: " + v("q-job")) + "&body=" + body;
+      });
+    });
+  })();
+  </script>
   <script src="videos/videos.js"></script>
 </body>
 </html>

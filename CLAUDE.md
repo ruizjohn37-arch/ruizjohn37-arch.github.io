@@ -11,8 +11,8 @@ John Ruiz runs two businesses from this site and often asks from his phone, some
 ## Site map (GitHub Pages, plain HTML, no build step)
 | Path | What it is |
 |---|---|
-| `index.html` | **Hands of Faith Construction Services**, Houston TX. Bilingual Spanish / English, black + orange (`#ff4500`). Phone 346-251-3550, email handsofffaith0629@gmail.com. |
-| `sell/index.html` | **"Sell Your House As-Is for Cash"** landing page for John's cash home buying. Light/dark tokens on `:root`, green accent. Form sends by SMS or email (`PHONE` / `EMAIL` vars near the bottom). |
+| `index.html` | **Hands of Faith Construction Services**, Houston TX. Bilingual Spanish / English, black + orange (`#ff4500`). Phone 346-251-3550, email handsofffaith0629@gmail.com. Has a free-estimate form (opens text/email) and LocalBusiness JSON-LD. |
+| `sell/index.html` | **"Sell Your House As-Is for Cash"** landing page for John's cash home buying in **Union County NJ, Detroit MI and Cleveland OH** (not Houston). Text (908) 552-0433. Light/dark tokens on `:root`, green accent. Form sends by SMS or email (`PHONE` / `EMAIL` vars near the bottom). |
 | `videos/` | Short 9:16 MP4 clips for both pages. See below. |
 | `deal-finder/` | Python CLI for wholesaling (rank listings, owner records, outreach emails, dashboard). Has its own `README.md`; read that only for deal-finder work. |
 
