@@ -153,9 +153,11 @@ def cmd_fetch():
         key = (j["title"].lower().strip(), j["company"].lower().strip())
         if key in seen: continue
         seen.add(key); uniq.append(j)
-    ai = [j for j in uniq if is_ai(j["title"] + " " + j.get("tags", "") + " " + j["description"][:1500])]
+    targets = load_profile()["target_titles"]
+    ai = [j for j in uniq if is_ai(j["title"] + " " + j.get("tags", "") + " " + j["description"][:1500])
+          or any(t in j["title"].lower() for t in targets)]
     with open(RAW, "w") as f: json.dump(ai, f)
-    print("Fetched %d jobs, %d are AI-related -> %s" % (len(uniq), len(ai), os.path.relpath(RAW, HERE)))
+    print("Fetched %d jobs, %d are AI or target roles -> %s" % (len(uniq), len(ai), os.path.relpath(RAW, HERE)))
 
 # ---------- score ----------
 def score_job(j, p):
@@ -183,7 +185,15 @@ def score_job(j, p):
         else: pay = 6
         why.append("$%dk" % round(top / 1000))
     else:
-        pay = 12
+        pay = 8
+    # hard rules: at least the minimum pay, and weekends off
+    capped = None
+    if top and top < p["min_salary_usd"]:
+        capped = (20, "pays under $%dk" % (p["min_salary_usd"] // 1000))
+    weekend_bad = re.search(r"weekends? (required|availability|shifts?)|work(ing)? weekends|saturdays?|sundays?|rotating shift|night shift|overnight|24/7|holidays and weekends", text)
+    if p.get("weekends_off") and weekend_bad:
+        capped = (25, "works weekends")
+    weekend_good = re.search(r"monday[ -]+(through|to|-)[ -]+friday|mon[ -]?-[ -]?fri|m-f\b|weekends off", text)
     # speed 20 (contract/freelance/part-time pays sooner)
     speed = 8
     if re.search(r"contract|freelance|part[- ]time|gig|hourly|project", text): speed = 20; why.append("contract/fast start")
@@ -195,7 +205,10 @@ def score_job(j, p):
     elif any(c in loc for c in p["local_cities"]): where = 15; why.append("local")
     elif re.search(r"europe|uk|emea|india|apac|germany|latam|canada only", loc): where = 2; why.append("region: " + loc[:25])
     else: where = 8
+    if weekend_good: where += 5; why.insert(0, "Mon-Fri")
     total = max(0, min(100, fit + pay + speed + where))
+    if capped:
+        total = min(total, capped[0]); why.insert(0, capped[1])
     return round(total), "; ".join(why)
 
 def read_status():
