@@ -29,3 +29,8 @@ John Ruiz runs two businesses from this site and often asks from his phone, some
 ## Video marketing plan (in progress)
 - Making short promo videos for both businesses. Talking-head clips are filmed on a phone; AI clips come from free tools (Google Flow / Veo) first, Muapi only if needed.
 - Scripts were written for 6 videos: 3 construction (before/after, intro, job-site b-roll) and 3 cash buying (pain point, intro, "three situations").
+
+## GTA VI fan pages (`gta6/`)
+- `gta6/index.html` answers page ("John's GTA VI answers"). Answers live in the `ANSWERS` list in the file; each has `q`, `a`, `checked` date and optional affiliate `link` / `linkText`. The affiliate footer line shows only when a link exists.
+- `gta6/countdown/` launch night countdown (midnight Nov 19, 2026, visitor's time zone) and `gta6/tracker/` progress tracker. Both link back to the answers page.
+- No Rockstar logos or artwork. Only add answers John sends or that were checked against current sources.

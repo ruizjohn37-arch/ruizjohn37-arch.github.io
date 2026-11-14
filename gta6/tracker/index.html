@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTA VI progress tracker</title>
+<meta name="description" content="Free GTA VI progress tracker. Add missions, side jobs, collectibles and vehicles, tick them off and keep notes.">
+<style>
+  :root { --bg:#0d0f14; --card:#171a22; --line:#2a2f3c; --text:#f2f4f8; --muted:#9aa3b5; --accent:#ff5fa2; --accent2:#3ad6c5; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:720px; margin:0 auto; padding:16px 16px 40px; }
+  .btn { display:block; text-align:center; padding:14px; border-radius:12px; background:var(--accent); color:#16060d; font-weight:800; text-decoration:none; }
+  h1 { font-size:1.6rem; margin:18px 0 4px; }
+  .sub { color:var(--muted); margin:0 0 14px; }
+  .warn { background:#3a2a10; border:1px solid #6b4d16; color:#ffd58a; border-radius:10px; padding:10px 12px; font-size:.88rem; margin-bottom:14px; }
+  .bar { height:12px; background:#252a36; border-radius:999px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--accent2); border-radius:999px; transition:width .25s; }
+  .total { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+  .total .bar i { background:var(--accent); }
+  .row { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; gap:8px; }
+  .row b { font-size:1.05rem; }
+  .pct { color:var(--muted); font-size:.9rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+  ul { list-style:none; margin:12px 0 0; padding:0; }
+  li { border-top:1px solid var(--line); padding:10px 0; }
+  .item { display:flex; align-items:center; gap:10px; }
+  .item input[type=checkbox] { width:22px; height:22px; accent-color:var(--accent2); flex:none; }
+  .item span { flex:1; overflow-wrap:anywhere; }
+  li.done .item span { color:var(--muted); text-decoration:line-through; }
+  .del { background:none; border:0; color:var(--muted); font-size:1.3rem; line-height:1; padding:6px 8px; cursor:pointer; }
+  .note, .add input { width:100%; background:#10131a; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; font-size:.92rem; }
+  .note { margin-top:8px; }
+  .add { display:flex; gap:8px; margin-top:12px; }
+  .add button { flex:none; border:0; border-radius:8px; padding:0 16px; background:var(--accent2); color:#04201d; font-weight:800; font-size:.95rem; cursor:pointer; }
+  .empty { color:var(--muted); font-size:.9rem; margin:12px 0 0; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="btn" href="../">GTA VI answers for new players</a>
+  <h1>GTA VI progress tracker</h1>
+  <p class="sub">Add what you want to track, tick it off, keep a note. Your progress stays on this device.</p>
+  <div class="warn" id="warn" hidden>Your browser is blocking saving. The tracker works, but progress will reset when you close this page.</div>
+  <div class="total">
+    <div class="row"><b>Whole game</b><span class="pct" id="tp">0%</span></div>
+    <div class="bar"><i id="tb"></i></div>
+  </div>
+  <div id="sections"></div>
+  <footer>Unofficial fan page. Not affiliated with or endorsed by Rockstar Games.</footer>
+</div>
+<script>
+var SECTIONS = [
+  { id: 'story', name: 'Story missions' },
+  { id: 'side', name: 'Side jobs' },
+  { id: 'collect', name: 'Collectibles' },
+  { id: 'vehicles', name: 'Vehicles' }
+];
+var KEY = 'gta6-tracker-v1', data = {}, canSave = true;
+try {
+  data = JSON.parse(localStorage.getItem(KEY)) || {};
+  localStorage.setItem(KEY, JSON.stringify(data));
+} catch (e) { canSave = false; data = {}; }
+if (!data || typeof data !== 'object') data = {};
+SECTIONS.forEach(function (s) { if (!Array.isArray(data[s.id])) data[s.id] = []; });
+document.getElementById('warn').hidden = canSave;
+
+function save() {
+  if (!canSave) return;
+  try { localStorage.setItem(KEY, JSON.stringify(data)); }
+  catch (e) { canSave = false; document.getElementById('warn').hidden = false; }
+}
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+function pct(done, all) { return all ? Math.round(done / all * 100) : 0; }
+
+function updateBars() {
+  var allDone = 0, all = 0;
+  SECTIONS.forEach(function (s) {
+    var items = data[s.id], done = items.filter(function (i) { return i.done; }).length;
+    allDone += done; all += items.length;
+    document.getElementById('p-' + s.id).textContent = done + ' / ' + items.length + ' · ' + pct(done, items.length) + '%';
+    document.getElementById('b-' + s.id).style.width = pct(done, items.length) + '%';
+  });
+  document.getElementById('tp').textContent = allDone + ' / ' + all + ' · ' + pct(allDone, all) + '%';
+  document.getElementById('tb').style.width = pct(allDone, all) + '%';
+}
+
+function renderList(s) {
+  var ul = document.getElementById('l-' + s.id), items = data[s.id];
+  ul.textContent = '';
+  document.getElementById('e-' + s.id).hidden = items.length > 0;
+  items.forEach(function (item, idx) {
+    var li = el('li', item.done ? 'done' : ''), row = el('div', 'item');
+    var box = el('input'); box.type = 'checkbox'; box.checked = !!item.done;
+    box.setAttribute('aria-label', 'Done: ' + item.text);
+    box.addEventListener('change', function () {
+      item.done = box.checked; li.className = item.done ? 'done' : ''; save(); updateBars();
+    });
+    var del = el('button', 'del', '×'); del.type = 'button';
+    del.setAttribute('aria-label', 'Remove ' + item.text);
+    del.addEventListener('click', function () { items.splice(idx, 1); save(); renderList(s); updateBars(); });
+    row.appendChild(box); row.appendChild(el('span', '', item.text)); row.appendChild(del);
+    var note = el('input', 'note'); note.type = 'text'; note.placeholder = 'Add a note';
+    note.value = item.note || ''; note.setAttribute('aria-label', 'Note for ' + item.text);
+    note.addEventListener('input', function () { item.note = note.value; save(); });
+    li.appendChild(row); li.appendChild(note); ul.appendChild(li);
+  });
+}
+
+var root = document.getElementById('sections');
+SECTIONS.forEach(function (s) {
+  var sec = el('section'), row = el('div', 'row');
+  row.appendChild(el('b', '', s.name));
+  var p = el('span', 'pct'); p.id = 'p-' + s.id; row.appendChild(p);
+  var bar = el('div', 'bar'), fill = el('i'); fill.id = 'b-' + s.id; bar.appendChild(fill);
+  var empty = el('p', 'empty', 'Nothing here yet. Add your first one below.'); empty.id = 'e-' + s.id;
+  var ul = el('ul'); ul.id = 'l-' + s.id;
+  var form = el('form', 'add'), input = el('input'), btn = el('button', '', 'Add');
+  input.type = 'text'; input.placeholder = 'Add to ' + s.name.toLowerCase(); input.maxLength = 120;
+  input.setAttribute('aria-label', 'Add to ' + s.name);
+  form.appendChild(input); form.appendChild(btn);
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var t = input.value.trim();
+    if (!t) return;
+    data[s.id].push({ text: t, done: false, note: '' });
+    input.value = ''; save(); renderList(s); updateBars();
+  });
+  sec.appendChild(row); sec.appendChild(bar); sec.appendChild(empty); sec.appendChild(ul); sec.appendChild(form);
+  root.appendChild(sec);
+  renderList(s);
+});
+updateBars();
+</script>
+</body>
+</html>
