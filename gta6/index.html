@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>John's GTA VI answers</title>
+<meta name="description" content="Short answers to the questions new GTA VI players ask on launch night. Each one shows the date it was checked.">
+<style>
+  :root { --bg:#0d0f14; --card:#171a22; --line:#2a2f3c; --text:#f2f4f8; --muted:#9aa3b5; --accent:#ff5fa2; --accent2:#3ad6c5; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:720px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:1.7rem; line-height:1.2; margin:8px 0 4px; }
+  .sub { color:var(--muted); margin:0 0 16px; }
+  nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  nav a { color:var(--text); text-decoration:none; border:1px solid var(--line); border-radius:999px; padding:8px 14px; font-size:.9rem; }
+  nav a:hover, nav a:focus-visible { border-color:var(--accent2); }
+  #q { width:100%; padding:14px 16px; font-size:1rem; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--text); position:sticky; top:8px; }
+  #q:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .count { color:var(--muted); font-size:.85rem; margin:10px 2px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px; }
+  .card h2 { font-size:1.08rem; margin:0 0 6px; }
+  .card p { margin:0 0 10px; }
+  .meta { color:var(--muted); font-size:.82rem; }
+  .buy { display:inline-block; margin-top:10px; padding:10px 14px; border-radius:10px; background:var(--accent); color:#16060d; font-weight:700; text-decoration:none; }
+  footer { color:var(--muted); font-size:.82rem; margin-top:24px; border-top:1px solid var(--line); padding-top:14px; }
+  footer p { margin:0 0 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>John's GTA VI answers</h1>
+  <p class="sub">Short answers for new players. Every answer shows the date it was checked.</p>
+  <nav>
+    <a href="countdown/">Launch countdown</a>
+    <a href="tracker/">Progress tracker</a>
+  </nav>
+  <input id="q" type="search" placeholder="Search a question, like &quot;pre-load&quot; or &quot;PC&quot;" aria-label="Search questions" autocomplete="off">
+  <div class="count" id="count" aria-live="polite"></div>
+  <div id="list"></div>
+  <footer>
+    <p id="aff" hidden>Some links on this page are affiliate links. I may earn a commission if you buy through them, at no extra cost to you.</p>
+    <p>Unofficial fan page. Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.</p>
+  </footer>
+</div>
+<script>
+// To add an answer: copy one line, change the text, save.
+// link / linkText are optional (affiliate product link for that card).
+var ANSWERS = [
+  { q: "When does GTA VI come out?",
+    a: "Thursday, November 19, 2026.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "What can I play it on?",
+    a: "PlayStation 5 (including PS5 Pro) and Xbox Series X|S. It is not on PS4 or Xbox One.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "Is GTA VI on PC?",
+    a: "Not at launch. Rockstar has not announced a PC version or a PC date.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "How much does it cost?",
+    a: "In the US the Standard Edition is $79.99 and the Ultimate Edition is $99.99. The Ultimate Edition is digital only.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "How much storage do I need?",
+    a: "Rockstar says up to 212 GB, depending on your console. Free up space before launch night.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "Can I pre-load the game?",
+    a: "Yes, if you pre-ordered digitally. Pre-loading is already open. Start the download from your console's store or library.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "What time does it unlock?",
+    a: "Reports differ, so check the countdown on the game's page in your PlayStation or Xbox store. That is the time for your region.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "Does the boxed copy come with a disc?",
+    a: "Reports say the box holds a download code, not a disc. You will still need the full download and the storage space.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "Is there an online mode at launch?",
+    a: "Rockstar has not announced an online mode for GTA VI. The launch is the single-player story.",
+    checked: "2026-11-14", link: "", linkText: "" },
+  { q: "Is the PS5 Pro version better?",
+    a: "The PlayStation Store lists it as PS5 Pro Enhanced. Rockstar has not published exact resolution or frame rate numbers for the Pro.",
+    checked: "2026-11-14", link: "", linkText: "" }
+];
+
+var list = document.getElementById('list'), count = document.getElementById('count');
+function fmt(d) {
+  var p = d.split('-');
+  return new Date(+p[0], p[1] - 1, +p[2]).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+function render(term) {
+  term = (term || '').trim().toLowerCase();
+  list.textContent = '';
+  var shown = 0;
+  ANSWERS.forEach(function (x) {
+    if (term && (x.q + ' ' + x.a).toLowerCase().indexOf(term) < 0) return;
+    shown++;
+    var c = el('article', 'card');
+    c.appendChild(el('h2', '', x.q));
+    c.appendChild(el('p', '', x.a));
+    c.appendChild(el('div', 'meta', 'Checked ' + fmt(x.checked)));
+    if (x.link) {
+      var a = el('a', 'buy', x.linkText || 'See the gear');
+      a.href = x.link; a.target = '_blank'; a.rel = 'sponsored noopener';
+      c.appendChild(a);
+    }
+    list.appendChild(c);
+  });
+  count.textContent = shown ? shown + (shown === 1 ? ' answer' : ' answers') : 'No match. Try a shorter word.';
+}
+document.getElementById('aff').hidden = !ANSWERS.some(function (x) { return x.link; });
+document.getElementById('q').addEventListener('input', function (e) { render(e.target.value); });
+render('');
+</script>
+</body>
+</html>

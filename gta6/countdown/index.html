@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTA VI launch night countdown</title>
+<meta name="description" content="Countdown to midnight on November 19 in your own time zone, plus a launch night checklist.">
+<style>
+  :root { --bg:#0a0b10; --card:#161922; --line:#2a2f3c; --text:#f2f4f8; --muted:#9aa3b5; --accent:#ff5fa2; --accent2:#3ad6c5; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:radial-gradient(circle at 50% 0,#2a1030 0,var(--bg) 60%); color:var(--text); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:28px 16px 40px; text-align:center; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  .clock { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .unit { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 4px; }
+  .num { font-size:clamp(2.4rem,13vw,4.5rem); font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:var(--accent); }
+  .lbl { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; margin-top:6px; }
+  #live { font-size:clamp(2rem,10vw,3.5rem); font-weight:800; color:var(--accent2); margin:10px 0; }
+  .tz { color:var(--muted); font-size:.82rem; margin:12px 0 24px; }
+  .btn { display:block; padding:16px; border-radius:14px; background:var(--accent); color:#16060d; font-weight:800; font-size:1.1rem; text-decoration:none; margin-bottom:26px; }
+  h2 { font-size:1.05rem; text-align:left; margin:0 0 10px; }
+  label { display:flex; align-items:center; gap:12px; text-align:left; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:8px; cursor:pointer; }
+  input[type=checkbox] { width:22px; height:22px; accent-color:var(--accent2); flex:none; }
+  input:checked + span { color:var(--muted); text-decoration:line-through; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GTA VI launch night</h1>
+  <p class="sub">Counting down to midnight on November 19, your time.</p>
+  <div class="clock" id="clock">
+    <div class="unit"><div class="num" id="d">--</div><div class="lbl">Days</div></div>
+    <div class="unit"><div class="num" id="h">--</div><div class="lbl">Hours</div></div>
+    <div class="unit"><div class="num" id="m">--</div><div class="lbl">Min</div></div>
+    <div class="unit"><div class="num" id="s">--</div><div class="lbl">Sec</div></div>
+  </div>
+  <div id="live" hidden>It's launch day.</div>
+  <p class="tz" id="tz"></p>
+  <a class="btn" href="../">Day one answers</a>
+  <h2>Ready for launch night?</h2>
+  <label><input type="checkbox" data-k="preload"><span>Game pre-loaded</span></label>
+  <label><input type="checkbox" data-k="storage"><span>Storage free</span></label>
+  <label><input type="checkbox" data-k="controller"><span>Controller charged</span></label>
+  <footer>Unofficial fan page. Not affiliated with or endorsed by Rockstar Games. Your store's unlock time may differ from midnight.</footer>
+</div>
+<script>
+// Midnight at the start of November 19, 2026 in the visitor's own time zone.
+var target = new Date(2026, 10, 19, 0, 0, 0).getTime();
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function tick() {
+  var left = target - Date.now();
+  if (left <= 0) {
+    document.getElementById('clock').hidden = true;
+    document.getElementById('live').hidden = false;
+    clearInterval(timer);
+    return;
+  }
+  var sec = Math.floor(left / 1000);
+  document.getElementById('d').textContent = Math.floor(sec / 86400);
+  document.getElementById('h').textContent = pad(Math.floor(sec % 86400 / 3600));
+  document.getElementById('m').textContent = pad(Math.floor(sec % 3600 / 60));
+  document.getElementById('s').textContent = pad(sec % 60);
+}
+var timer = setInterval(tick, 1000);
+tick();
+try {
+  var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (zone) document.getElementById('tz').textContent = 'Your time zone: ' + zone.replace(/_/g, ' ');
+} catch (e) {}
+
+// Checklist: saved in this browser when allowed, still works when not.
+var KEY = 'gta6-launch-checklist', saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
+[].forEach.call(document.querySelectorAll('input[data-k]'), function (box) {
+  box.checked = !!saved[box.dataset.k];
+  box.addEventListener('change', function () {
+    saved[box.dataset.k] = box.checked;
+    try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+  });
+});
+</script>
+</body>
+</html>
