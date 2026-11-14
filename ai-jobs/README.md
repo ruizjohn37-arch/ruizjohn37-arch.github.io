@@ -24,11 +24,11 @@ Paste jobs you find yourself (LinkedIn, Indeed, Upwork) into `extra_jobs.csv` wi
 | Part | Points | What counts |
 |---|---|---|
 | Fit | 40 | Title matches a target role; skills in the post that are in `profile.json` |
-| Pay | 25 | Above your minimum ($65k/yr or $35/hr) |
+| Pay | 25 | Above your minimum ($80k/yr). Jobs that pay less are capped at 20 |
 | Speed | 20 | Contract / freelance / part-time starts paying sooner |
 | Location | 15 | Remote US/worldwide or NJ/NY |
 
-Senior roles, deep-engineering roles and scam signs score low.
+Jobs that need weekend, night or rotating shifts are capped at 25 (John wants weekends off); "Monday-Friday" adds points. Senior roles, deep-engineering roles and scam signs score low. Besides AI jobs it now also keeps ops, customer success, account and project manager roles.
 
 ## Daily run (10am Eastern)
 A scheduled Claude session runs `aijobs.py run` every morning. Then it:
